@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EduMentor</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;color:#222}
+fieldset{margin:1rem 0;border:1px solid #ccc;border-radius:8px}
+input,button,textarea{font:inherit;padding:.4rem;margin:.2rem}
+pre{background:#f4f4f4;padding:1rem;border-radius:8px;white-space:pre-wrap}
+</style></head><body>
+<h1>EduMentor</h1>
+<fieldset><legend>1. Student</legend>
+<input id="name" placeholder="Name"><button onclick="mk()">Create</button> <b id="sid"></b></fieldset>
+<fieldset><legend>2. Add mark</legend>
+<input id="sub" placeholder="Subject"><input id="top" placeholder="Topic">
+<input id="sc" type="number" placeholder="Score" style="width:80px"><input id="mx" type="number" placeholder="Max" value="100" style="width:80px">
+<button onclick="addMark()">Add</button></fieldset>
+<fieldset><legend>3. Add exam</legend>
+<input id="esub" placeholder="Subject"><input id="edate" type="date"><button onclick="addExam()">Add</button></fieldset>
+<fieldset><legend>4. Ask the mentor</legend>
+<textarea id="q" rows="2" style="width:95%">How should I prepare for my upcoming exams?</textarea><br>
+<button onclick="ask()">Ask</button> <button onclick="stats()">Show analytics</button></fieldset>
+<pre id="out"></pre>
+<script>
+let id=null;
+const out=t=>document.getElementById('out').textContent=typeof t==='string'?t:JSON.stringify(t,null,2);
+const v=x=>document.getElementById(x).value;
+async function api(path,method='GET',body){
+  const r=await fetch('/api'+path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||r.status); return j;
+}
+async function run(f){try{await f()}catch(e){out('Error: '+e.message)}}
+const mk=()=>run(async()=>{const s=await api('/students','POST',{name:v('name')});id=s.id;document.getElementById('sid').textContent='id='+id;out(s)});
+const addMark=()=>run(async()=>out(await api(`/students/${id}/marks`,'POST',{subject:v('sub'),topic:v('top'),score:+v('sc'),maxScore:+v('mx')})));
+const addExam=()=>run(async()=>out(await api(`/students/${id}/exams`,'POST',{subject:v('esub'),examDate:v('edate')})));
+const stats=()=>run(async()=>out(await api(`/students/${id}/analytics`)));
+const ask=()=>{out('Mentor is thinking...');run(async()=>out((await api(`/mentor/${id}/ask`,'POST',{question:v('q')})).answer))};
+</script></body></html>

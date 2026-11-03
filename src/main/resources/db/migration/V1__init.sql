@@ -1,0 +1,28 @@
+CREATE TABLE students (
+  id BIGSERIAL PRIMARY KEY,
+  name VARCHAR(120) NOT NULL,
+  email VARCHAR(200) UNIQUE
+);
+CREATE TABLE marks (
+  id BIGSERIAL PRIMARY KEY,
+  student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  subject VARCHAR(80) NOT NULL,
+  topic VARCHAR(120) NOT NULL,
+  score NUMERIC(6,2) NOT NULL,
+  max_score NUMERIC(6,2) NOT NULL CHECK (max_score > 0),
+  taken_on DATE NOT NULL DEFAULT CURRENT_DATE
+);
+CREATE INDEX idx_marks_student ON marks(student_id, taken_on);
+CREATE TABLE exams (
+  id BIGSERIAL PRIMARY KEY,
+  student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  subject VARCHAR(80) NOT NULL,
+  exam_date DATE NOT NULL
+);
+CREATE TABLE mentor_messages (
+  id BIGSERIAL PRIMARY KEY,
+  student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  role VARCHAR(20) NOT NULL,
+  content TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
