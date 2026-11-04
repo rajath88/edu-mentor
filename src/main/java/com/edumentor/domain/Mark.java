@@ -10,7 +10,7 @@ public class Mark {
     private String subject;
     private String topic;
     private double score;
-    @Column(name = "max_score") private double maxScore;
+    @Column(name = "max_score", columnDefinition = "numeric") private double maxScore;
     @Column(name = "taken_on") private LocalDate takenOn;
     protected Mark() {}
     public Mark(Long studentId, String subject, String topic, double score, double maxScore, LocalDate takenOn) {

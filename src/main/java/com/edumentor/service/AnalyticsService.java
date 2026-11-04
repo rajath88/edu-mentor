@@ -54,8 +54,10 @@ public class AnalyticsService {
     private double trend(List<Mark> list) {
         if (list.size() < 4) return 0;
         int split = list.size() - 3;
-        double recent = list.subList(split, list.size()).stream().mapToDouble(Mark::percent).average().orElse(0);
-        double earlier = list.subList(0, split).stream().mapToDouble(Mark::percent).average().orElse(0);
+        double recent = list.subList(split, list.size()).stream()
+            .mapToDouble(mark -> Objects.requireNonNull(mark).percent()).average().orElse(0);
+        double earlier = list.subList(0, split).stream()
+            .mapToDouble(mark -> Objects.requireNonNull(mark).percent()).average().orElse(0);
         return recent - earlier;
     }
 
@@ -63,7 +65,7 @@ public class AnalyticsService {
         return list.stream()
                 .collect(Collectors.groupingBy(Mark::getTopic, Collectors.averagingDouble(Mark::percent)))
                 .entrySet().stream().min(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey).orElse("n/a");
+                .map(entry -> Objects.requireNonNull(entry).getKey()).orElse("n/a");
     }
 
     private double round(double v) { return Math.round(v * 10.0) / 10.0; }
