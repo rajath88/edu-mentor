@@ -141,7 +141,12 @@ function App() {
       setStudentId(String(id));
       setStudentName(name);
     } catch (err) {
-      setRegisterError(err.response?.data?.error || err.message || "Registration failed.");
+      setRegisterError(
+  err.response?.data?.error?.message ||
+  err.response?.data?.message ||
+  err.message ||
+  "Registration failed."
+);
     } finally {
       setRegistering(false);
     }
