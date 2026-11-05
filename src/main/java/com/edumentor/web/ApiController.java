@@ -15,7 +15,11 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = {
+    "http://localhost:5173",
+    "https://edu-mentor-two.vercel.app",
+    "https://edu-mentor-tzscc169y-rajath88.vercel.app"
+})
 @RestController
 @RequestMapping("/api")
 public class ApiController {
