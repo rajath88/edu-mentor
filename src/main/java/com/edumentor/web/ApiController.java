@@ -1,3 +1,4 @@
+
 package com.edumentor.web;
 
 import com.edumentor.agent.MentorAgent;
@@ -9,7 +10,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.bind.annotation.CrossOrigin;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -31,36 +31,63 @@ public class ApiController {
     private final MentorAgent agent;
     private final MessageRepo messages;
 
-    public ApiController(MarkService marks, AnalyticsService analytics, MentorAgent agent, MessageRepo messages) {
-        this.marks = marks; this.analytics = analytics; this.agent = agent; this.messages = messages;
+    public ApiController(MarkService marks, AnalyticsService analytics,
+                         MentorAgent agent, MessageRepo messages) {
+        this.marks = marks;
+        this.analytics = analytics;
+        this.agent = agent;
+        this.messages = messages;
     }
 
-    @PostMapping("/students") @ResponseStatus(HttpStatus.CREATED)
+    @PostMapping("/students")
+    @ResponseStatus(HttpStatus.CREATED)
     public Student createStudent(@RequestBody @Valid StudentReq r) {
         return marks.createStudent(r.name(), r.email());
     }
 
-    @PostMapping("/students/{id}/marks") @ResponseStatus(HttpStatus.CREATED)
+    @PostMapping("/students/{id}/marks")
+    @ResponseStatus(HttpStatus.CREATED)
     public Mark addMark(@PathVariable Long id, @RequestBody @Valid MarkReq r) {
         return marks.addMark(id, r.subject(), r.topic(), r.score(), r.maxScore(), r.takenOn());
     }
 
     @GetMapping("/students/{id}/marks")
-    public List<Mark> marks(@PathVariable Long id) { return marks.listMarks(id); }
+    public List<Mark> marks(@PathVariable Long id) {
+        return marks.listMarks(id);
+    }
 
-    @PostMapping("/students/{id}/exams") @ResponseStatus(HttpStatus.CREATED)
+    @PostMapping("/students/{id}/exams")
+    @ResponseStatus(HttpStatus.CREATED)
     public Exam addExam(@PathVariable Long id, @RequestBody @Valid ExamReq r) {
         return marks.addExam(id, r.subject(), r.examDate());
     }
 
     @GetMapping("/students/{id}/analytics")
-    public AnalyticsService.Analytics analytics(@PathVariable Long id) { return analytics.compute(id); }
+    public AnalyticsService.Analytics analytics(@PathVariable Long id) {
+        return analytics.compute(id);
+    }
 
     @PostMapping("/mentor/{id}/ask")
-    public Map<String, String> ask(@PathVariable Long id, @RequestBody @Valid AskReq r) {
-        String answer = agent.run(id, r.question());
-        messages.save(new MentorMessage(id, "student", r.question()));
-        messages.save(new MentorMessage(id, "mentor", answer));
+    public Map<String, String> ask(@PathVariable String id,
+                                   @RequestBody @Valid AskReq r) {
+
+        if (id == null || id.equalsIgnoreCase("null") || id.isBlank()) {
+            return Map.of("answer", "Please enter your name first to use Mentor.");
+        }
+
+        Long studentId;
+
+        try {
+            studentId = Long.valueOf(id);
+        } catch (NumberFormatException e) {
+            return Map.of("answer", "Please enter your name first to use Mentor.");
+        }
+
+        String answer = agent.run(studentId, r.question());
+
+        messages.save(new MentorMessage(studentId, "student", r.question()));
+        messages.save(new MentorMessage(studentId, "mentor", answer));
+
         return Map.of("answer", answer);
     }
 
@@ -69,6 +96,9 @@ public class ApiController {
         return messages.findTop10ByStudentIdOrderByCreatedAtDesc(id);
     }
 
-    @ExceptionHandler(IllegalArgumentException.class) @ResponseStatus(HttpStatus.NOT_FOUND)
-    public Map<String, String> notFound(IllegalArgumentException e) { return Map.of("error", e.getMessage()); }
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Map<String, String> notFound(IllegalArgumentException e) {
+        return Map.of("error", e.getMessage());
+    }
 }

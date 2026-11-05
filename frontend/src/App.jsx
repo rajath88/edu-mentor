@@ -72,7 +72,7 @@ useEffect(() => {
     setAsking(true);
     setAnswer("");
     try {
-      const response = await api.post("/mentor/1/ask", { question });
+      const response = await api.post("/mentor/null/ask", { question });
       setAnswer(response.data.answer || JSON.stringify(response.data));
     } catch (error) {
       console.error("AI Mentor error:", error);

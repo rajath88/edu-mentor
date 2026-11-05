@@ -69,11 +69,27 @@ public class MentorAgent {
         this.graph = g.compile();
     }
 
-    public String run(Long studentId, String question) {
-        return graph.invoke(Map.of("studentId", studentId, "question", question))
-                .map(state -> state.plan())
-                .orElse("The mentor could not produce a plan.");
+    
+public String run(Long studentId, String question) {
+
+    if (studentId == null) {
+        return "Please enter your name first to use Mentor.";
     }
+
+    try {
+        return graph.invoke(Map.of(
+                "studentId", studentId,
+                "question", question
+        ))
+        .map(state -> state.plan())
+        .orElse("The mentor could not produce a plan.");
+
+    } catch (Exception e) {
+        System.out.println("========== MENTOR ERROR ==========");
+        e.printStackTrace();
+        throw new RuntimeException("MentorAgent failed: " + e.getMessage(), e);
+    }
+}
 
     private static String toJson(ObjectMapper m, Object o) {
         try { return m.writeValueAsString(o); } catch (Exception e) { throw new RuntimeException(e); }
