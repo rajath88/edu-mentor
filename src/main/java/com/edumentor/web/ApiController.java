@@ -18,8 +18,10 @@ import java.util.Map;
 @CrossOrigin(origins = {
     "http://localhost:5173",
     "https://edu-mentor-two.vercel.app",
-    "https://edu-mentor-tzscc169y-rajath88.vercel.app"
+    "https://edu-mentor-tzscc169y-rajath88.vercel.app",
+    "https://edu-mentor-12vwx0fbs-rajath88.vercel.app"
 })
+
 @RestController
 @RequestMapping("/api")
 public class ApiController {
