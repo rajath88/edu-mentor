@@ -15,7 +15,7 @@ public class AiConfig {
     ChatModel chatModel() {
         return GoogleAiGeminiChatModel.builder()
                 .apiKey(System.getenv("GEMINI_API_KEY"))
-                .modelName("gemini-2.5-flash")
+                .modelName("gemini-3.5-flash-lite")
                 .temperature(0.4)
                 .timeout(Duration.ofSeconds(60))
                 .build();
