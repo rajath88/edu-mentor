@@ -1,22 +1,55 @@
+server:
+  # Render provides SERVER_PORT/PORT; local Docker Compose defaults to 8080.
+  address: 0.0.0.0
+  port: ${PORT:10000}
+
 spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/edumentor}
     username: ${DB_USER:edumentor}
     password: ${DB_PASSWORD:edumentor}
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 0
+      connection-timeout: 10000
   jpa:
-    hibernate.ddl-auto: validate
+    hibernate:
+      ddl-auto: validate
     open-in-view: false
-  flyway.enabled: true
-  data.redis:
-    host: ${VALKEY_HOST:localhost}
-    port: ${VALKEY_PORT:6379}
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: ${VALKEY_HOST:localhost}
+      port: ${VALKEY_PORT:6379}
+      connect-timeout: 2s
+      timeout: 2s
+      repositories:
+        enabled: false
   cache:
     type: redis
-    redis.time-to-live: 10m
+    redis:
+      time-to-live: 10m
+
 llm:
-  api-key: ${LLM_API_KEY:changeme}
+  api-key: ${LLM_API_KEY:}
   base-url: ${LLM_BASE_URL:https://api.openai.com/v1}
   model: ${LLM_MODEL:gpt-4o-mini}
+
+gemini:
+  api-key: ${GEMINI_API_KEY:}
+  base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta/openai/}
+  model: ${GEMINI_MODEL:gemini-3.8-flash}
+
 mentor:
   rate-limit-per-minute: 10
-management.endpoints.web.exposure.include: health
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
