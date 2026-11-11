@@ -1,6 +1,9 @@
 
 import { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import api from "./api";
+import { normalizeMentorMarkdown } from "./utils/mentorMarkdown.js";
 import {
   LayoutDashboard, BookOpen, Brain, ClipboardList, BarChart3,
   Settings, Bell, Menu, GraduationCap, Clock, Target, Flame,
@@ -87,6 +90,12 @@ const PageTitle = ({ title, subtitle }) => (
     <p className="text-slate-500 mt-2">{subtitle}</p>
   </div>
 );
+
+const withoutMarkdownNode = (props) => {
+  const { node, ...htmlProps } = props;
+  void node;
+  return htmlProps;
+};
 
 function App() {
   const [active, setActive] = useState("Dashboard");
@@ -562,7 +571,38 @@ function App() {
         </button>
         {answer && <div className="mt-6 bg-violet-50 p-5 rounded-xl">
           <h3 className="font-bold mb-2">Mentor Response</h3>
-          <p className="whitespace-pre-wrap leading-7">{answer}</p>
+          <div className="mentor-markdown text-slate-700 leading-7">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                h1: (props) => <h1 {...withoutMarkdownNode(props)} className="text-2xl font-bold mt-4 mb-2 first:mt-0" />,
+                h2: (props) => <h2 {...withoutMarkdownNode(props)} className="text-xl font-bold mt-4 mb-2 first:mt-0" />,
+                h3: (props) => <h3 {...withoutMarkdownNode(props)} className="text-lg font-semibold mt-3 mb-1" />,
+                p: (props) => <p {...withoutMarkdownNode(props)} className="mb-3 last:mb-0" />,
+                ul: (props) => <ul {...withoutMarkdownNode(props)} className="list-disc pl-6 mb-3 space-y-1" />,
+                ol: (props) => <ol {...withoutMarkdownNode(props)} className="list-decimal pl-6 mb-3 space-y-1" />,
+                li: (props) => <li {...withoutMarkdownNode(props)} className="pl-1" />,
+                blockquote: (props) => <blockquote {...withoutMarkdownNode(props)} className="border-l-4 border-violet-300 pl-4 my-3 text-slate-600" />,
+                a: (props) => <a {...withoutMarkdownNode(props)} className="text-violet-700 underline underline-offset-2" />,
+                table: (props) => <div className="overflow-x-auto my-4"><table {...withoutMarkdownNode(props)} className="w-full border-collapse text-left" /></div>,
+                th: (props) => <th {...withoutMarkdownNode(props)} className="border border-violet-200 bg-violet-100 px-3 py-2 font-semibold" />,
+                td: (props) => <td {...withoutMarkdownNode(props)} className="border border-violet-200 px-3 py-2" />,
+                pre: (props) => <pre {...withoutMarkdownNode(props)} className="overflow-x-auto rounded-lg bg-slate-900 text-slate-100 p-4 my-4 text-sm" />,
+                code: (props) => {
+                  const { className, children, ...htmlProps } = withoutMarkdownNode(props);
+                  return (
+                    <code
+                      {...htmlProps}
+                      className={className || "rounded bg-violet-100 px-1 py-0.5 font-mono text-sm"}
+                    >{children}</code>
+                  );
+                },
+                hr: (props) => <hr {...withoutMarkdownNode(props)} className="border-violet-200 my-4" />,
+              }}
+            >
+              {normalizeMentorMarkdown(answer)}
+            </ReactMarkdown>
+          </div>
         </div>}
       </Card>
     </>

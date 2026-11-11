@@ -91,6 +91,10 @@ public class MentorAgent {
                         to add subjects, exam dates, or marks if useful.
                     11. Never invent academic records or student details.
                     12. Keep the response clear, helpful, and relevant.
+                    13. Use standard Markdown for headings, emphasis, lists,
+                        tables, and fenced code when they improve readability.
+                        Do not backslash-escape Markdown markers or encode
+                        spacing with HTML entities.
 
                     RESPONSE FORMAT:
                     - Direct answer to the question.
