@@ -5,6 +5,18 @@ import remarkGfm from "remark-gfm";
 import api from "./api";
 import { normalizeMentorMarkdown } from "./utils/mentorMarkdown.js";
 import {
+  COURSE_CATALOG,
+  QUIZZES,
+  calculateQuizScore,
+  loadCourseProgress,
+  loadQuizHistory,
+  safeStorageGet,
+  safeStorageRemove,
+  safeStorageSet,
+  saveCourseProgress,
+  saveQuizResult,
+} from "./utils/studentWorkspace.js";
+import {
   LayoutDashboard, BookOpen, Brain, ClipboardList, BarChart3,
   Settings, Bell, Menu, GraduationCap, Clock, Target, Flame,
   CalendarDays, Award, LogOut, Plus, CheckCircle2, X,
@@ -13,34 +25,6 @@ import {
   ResponsiveContainer, XAxis, YAxis,
   Tooltip, CartesianGrid, BarChart, Bar,
 } from "recharts";
-
-const courseData = [
-  { name: "Data Structures", progress: 75, color: "bg-violet-500", code: "DS" },
-  { name: "Java Programming", progress: 60, color: "bg-blue-500", code: "JP" },
-  { name: "Machine Learning", progress: 45, color: "bg-emerald-500", code: "ML" },
-  { name: "Cyber Security", progress: 30, color: "bg-orange-500", code: "CS" },
-];
-
-const quizData = [
-  {
-    title: "Java Fundamentals",
-    subject: "Java",
-    questions: [
-      { q: "Which keyword creates a class in Java?", options: ["function", "class", "struct", "define"], answer: 1 },
-      { q: "Which method starts a Java program?", options: ["start()", "run()", "main()", "init()"], answer: 2 },
-      { q: "Which type stores true or false?", options: ["int", "String", "boolean", "char"], answer: 2 },
-    ],
-  },
-  {
-    title: "Data Structures",
-    subject: "DS",
-    questions: [
-      { q: "Which structure follows FIFO?", options: ["Stack", "Queue", "Tree", "Graph"], answer: 1 },
-      { q: "Which structure follows LIFO?", options: ["Queue", "Array", "Stack", "Linked List"], answer: 2 },
-      { q: "Which is a linear data structure?", options: ["Graph", "Tree", "Array", "Heap"], answer: 2 },
-    ],
-  },
-];
 
 const menuItems = [
   { label: "Dashboard", icon: LayoutDashboard },
@@ -60,6 +44,12 @@ function getErrorMessage(error, fallback) {
     typeof error?.message === "string" ? error.message : null,
   ];
   return candidates.find((value) => typeof value === "string" && value.trim()) || fallback;
+}
+
+function getLocalDateString() {
+  const date = new Date();
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 10);
 }
 
 async function requestStudentData(studentId) {
@@ -101,8 +91,8 @@ function App() {
   const [active, setActive] = useState("Dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const [studentId, setStudentId] = useState(localStorage.getItem("studentId") || "");
-  const [studentName, setStudentName] = useState(localStorage.getItem("studentName") || "");
+  const [studentId, setStudentId] = useState(() => safeStorageGet("studentId"));
+  const [studentName, setStudentName] = useState(() => safeStorageGet("studentName"));
   const [registerName, setRegisterName] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
   const [registering, setRegistering] = useState(false);
@@ -111,36 +101,48 @@ function App() {
   const [marks, setMarks] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [upcomingExams, setUpcomingExams] = useState([]);
-  const [loading, setLoading] = useState(() => Boolean(localStorage.getItem("studentId")));
+  const [loading, setLoading] = useState(() => Boolean(safeStorageGet("studentId")));
   const [error, setError] = useState("");
 
   const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
   const [asking, setAsking] = useState(false);
+  const [mentorMessages, setMentorMessages] = useState([]);
+  const [mentorHistoryError, setMentorHistoryError] = useState("");
+  const [mentorError, setMentorError] = useState("");
 
   const [examSubject, setExamSubject] = useState("");
   const [examDate, setExamDate] = useState("");
   const [exams, setExams] = useState([]);
   const [examMessage, setExamMessage] = useState("");
+  const [examMessageType, setExamMessageType] = useState("success");
+  const [savingExam, setSavingExam] = useState(false);
+  const [deletingExamId, setDeletingExamId] = useState(null);
   const [markSubject, setMarkSubject] = useState("");
   const [markTopic, setMarkTopic] = useState("");
   const [markScore, setMarkScore] = useState("");
   const [markMaxScore, setMarkMaxScore] = useState("");
   const [markDate, setMarkDate] = useState("");
   const [markMessage, setMarkMessage] = useState("");
+  const [markMessageType, setMarkMessageType] = useState("success");
   const [savingMark, setSavingMark] = useState(false);
 
+  const [courseProgress, setCourseProgress] = useState(() => loadCourseProgress(safeStorageGet("studentId")));
+  const [selectedCourseId, setSelectedCourseId] = useState(null);
+  const [courseStorageError, setCourseStorageError] = useState("");
+  const [quizHistory, setQuizHistory] = useState(() => loadQuizHistory(safeStorageGet("studentId")));
+  const [quizStorageError, setQuizStorageError] = useState("");
   const [quizIndex, setQuizIndex] = useState(null);
   const [quizQuestion, setQuizQuestion] = useState(0);
-  const [quizScore, setQuizScore] = useState(0);
+  const [quizAnswers, setQuizAnswers] = useState({});
   const [quizFinished, setQuizFinished] = useState(false);
 
   const [settingsMessage, setSettingsMessage] = useState("");
+  const today = getLocalDateString();
 
   const isRegistered = Boolean(studentId && studentName);
 
   const loadData = async () => {
-    if (!studentId) return;
+    if (!studentId) return false;
     setLoading(true);
     setError("");
     try {
@@ -155,9 +157,11 @@ function App() {
       setExams([]);
       setUpcomingExams([]);
       setError(getErrorMessage(err, "Unable to load student data. Please refresh."));
+      return false;
     } finally {
       setLoading(false);
     }
+    return true;
   };
 
   useEffect(() => {
@@ -188,9 +192,32 @@ function App() {
     return () => { current = false; };
   }, [isRegistered, studentId]);
 
+  useEffect(() => {
+    if (!studentId) return undefined;
+    let current = true;
+    api.get(`/mentor/${studentId}/history`)
+      .then(({ data }) => {
+        if (!current) return;
+        const ordered = Array.isArray(data) ? [...data].reverse() : [];
+        setMentorMessages(ordered.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })));
+        setMentorHistoryError("");
+      })
+      .catch(() => {
+        if (current) setMentorHistoryError("Previous mentor messages could not be loaded.");
+      });
+
+    return () => { current = false; };
+  }, [studentId]);
+
   const registerStudent = async (e) => {
     e.preventDefault();
-    if (!registerName.trim()) return;
+    if (!registerName.trim()) {
+      setRegisterError("Enter your name to create a profile.");
+      return;
+    }
 
     setRegistering(true);
     setRegisterError("");
@@ -208,8 +235,11 @@ function App() {
 
       if (!id) throw new Error("Student ID was not returned.");
 
-      localStorage.setItem("studentId", String(id));
-      localStorage.setItem("studentName", name);
+      safeStorageSet("studentId", String(id));
+      safeStorageSet("studentName", name);
+      setCourseProgress(loadCourseProgress(String(id)));
+      setQuizHistory(loadQuizHistory(String(id)));
+      setMentorMessages([]);
 
       setLoading(true);
       setStudentId(String(id));
@@ -222,17 +252,24 @@ function App() {
   };
 
   const askMentor = async () => {
-    if (!question.trim() || !studentId) return;
+    const submittedQuestion = question.trim();
+    if (!submittedQuestion || !studentId) return;
 
     setAsking(true);
-    setAnswer("");
+    setMentorError("");
 
     try {
-      const response = await api.post(`/mentor/${studentId}/ask`, { question });
+      const response = await api.post(`/mentor/${studentId}/ask`, { question: submittedQuestion });
       const result = response.data?.answer;
-      setAnswer(typeof result === "string" ? result : JSON.stringify(result ?? response.data));
+      const mentorAnswer = typeof result === "string" ? result : JSON.stringify(result ?? response.data);
+      setMentorMessages((messages) => [
+        ...messages,
+        { role: "student", content: submittedQuestion },
+        { role: "mentor", content: mentorAnswer },
+      ]);
+      setQuestion("");
     } catch (err) {
-      setAnswer(getErrorMessage(err, "Mentor is unavailable."));
+      setMentorError(getErrorMessage(err, "Mentor is unavailable."));
     } finally {
       setAsking(false);
     }
@@ -240,8 +277,15 @@ function App() {
 
   const addExam = async (e) => {
     e.preventDefault();
-    if (!examSubject.trim() || !examDate) return;
+    if (!studentId) return;
+    if (!examSubject.trim() || !examDate) {
+      setExamMessageType("error");
+      setExamMessage("Enter an exam subject and date.");
+      return;
+    }
 
+    setSavingExam(true);
+    setExamMessage("");
     try {
       await api.post(`/students/${studentId}/exams`, {
         subject: examSubject.trim(),
@@ -249,36 +293,57 @@ function App() {
       });
       setExamSubject("");
       setExamDate("");
+      setExamMessageType("success");
       setExamMessage("Exam added successfully!");
       await loadData();
     } catch (err) {
+      setExamMessageType("error");
       setExamMessage(getErrorMessage(err, "Could not save exam."));
+    } finally {
+      setSavingExam(false);
     }
   };
 
   const deleteExam = async (id) => {
     setExamMessage("");
+    setDeletingExamId(id);
     try {
       await api.delete(`/students/${studentId}/exams/${id}`);
+      setExamMessageType("success");
       setExamMessage("Exam deleted successfully.");
       await loadData();
     } catch (err) {
+      setExamMessageType("error");
       setExamMessage(getErrorMessage(err, "Could not delete exam."));
+    } finally {
+      setDeletingExamId(null);
     }
   };
 
   const addMark = async (e) => {
     e.preventDefault();
-    if (!markSubject.trim() || !markTopic.trim() || markScore === "" || markMaxScore === "") return;
+    if (!markSubject.trim() || !markTopic.trim() || markScore === "" || markMaxScore === "") {
+      setMarkMessageType("error");
+      setMarkMessage("Enter a subject, topic, score, and maximum score.");
+      return;
+    }
 
     setSavingMark(true);
     setMarkMessage("");
+    const score = Number(markScore);
+    const maxScore = Number(markMaxScore);
+    if (!Number.isFinite(score) || !Number.isFinite(maxScore) || score > maxScore) {
+      setMarkMessageType("error");
+      setMarkMessage("Score must be a valid number no greater than the maximum score.");
+      setSavingMark(false);
+      return;
+    }
     try {
       await api.post(`/students/${studentId}/marks`, {
         subject: markSubject.trim(),
         topic: markTopic.trim(),
-        score: Number(markScore),
-        maxScore: Number(markMaxScore),
+        score,
+        maxScore,
         takenOn: markDate || null,
       });
       setMarkSubject("");
@@ -286,9 +351,11 @@ function App() {
       setMarkScore("");
       setMarkMaxScore("");
       setMarkDate("");
+      setMarkMessageType("success");
       setMarkMessage("Mark added successfully.");
       await loadData();
     } catch (err) {
+      setMarkMessageType("error");
       setMarkMessage(getErrorMessage(err, "Could not save mark."));
     } finally {
       setSavingMark(false);
@@ -298,33 +365,50 @@ function App() {
   const startQuiz = (index) => {
     setQuizIndex(index);
     setQuizQuestion(0);
-    setQuizScore(0);
+    setQuizAnswers({});
     setQuizFinished(false);
   };
 
-  const answerQuiz = (option) => {
-    const quiz = quizData[quizIndex];
-    const correct = option === quiz.questions[quizQuestion].answer;
-    const nextScore = quizScore + (correct ? 1 : 0);
-
-    setQuizScore(nextScore);
-
-    if (quizQuestion + 1 === quiz.questions.length) {
-      setQuizFinished(true);
-    } else {
-      setQuizQuestion(quizQuestion + 1);
-    }
+  const submitQuiz = () => {
+    const quiz = QUIZZES[quizIndex];
+    const score = calculateQuizScore(quiz, quizAnswers);
+    if (score === null) return;
+    const result = {
+      quizId: quiz.id,
+      title: quiz.title,
+      score,
+      total: quiz.questions.length,
+      completedAt: new Date().toISOString(),
+    };
+    setQuizHistory((history) => [...history, result]);
+    setQuizStorageError(saveQuizResult(studentId, result)
+      ? ""
+      : "The result is visible for this session but could not be saved in this browser.");
+    setQuizFinished(true);
   };
 
-  const average = marks.length
-    ? Math.round(
-        marks.reduce((sum, m) => {
-          const score = Number(m.score);
-          const max = Number(m.maxScore);
-          return sum + (max > 0 ? (score / max) * 100 : 0);
-        }, 0) / marks.length
-      )
+  const toggleCourseLesson = (courseId, lessonId) => {
+    setCourseProgress((progress) => {
+      const completed = progress[courseId] || [];
+      const nextCompleted = completed.includes(lessonId)
+        ? completed.filter((id) => id !== lessonId)
+        : [...completed, lessonId];
+      const next = { ...progress, [courseId]: nextCompleted };
+      if (!saveCourseProgress(studentId, next)) {
+        setCourseStorageError("Progress changed for this session but could not be saved in this browser.");
+      } else {
+        setCourseStorageError("");
+      }
+      return next;
+    });
+  };
+
+  const averageCourseProgress = COURSE_CATALOG.length
+    ? Math.round(COURSE_CATALOG.reduce((total, course) => (
+        total + ((courseProgress[course.id]?.length || 0) / course.lessons.length) * 100
+      ), 0) / COURSE_CATALOG.length)
     : 0;
+  const latestQuizResult = quizHistory.at(-1);
 
   const statCards = [
     { title: "Marks Recorded", value: analytics?.marksCount ?? 0, icon: Award, color: "violet" },
@@ -415,6 +499,25 @@ function App() {
         </Card>
       </div>
 
+      <div className="grid lg:grid-cols-2 gap-6 mb-8">
+        <Card>
+          <div className="flex items-center justify-between gap-3">
+            <div><h3 className="font-bold">Course progress</h3><p className="text-sm text-slate-500 mt-1">Based on topics you marked complete</p></div>
+            <strong className="text-xl text-violet-700">{averageCourseProgress}%</strong>
+          </div>
+          <div className="mt-4 h-2 rounded-full bg-slate-100"><div className="h-full rounded-full bg-violet-500" style={{ width: `${averageCourseProgress}%` }} /></div>
+          <button onClick={() => setActive("My Courses")} className="mt-4 text-violet-700 text-sm font-semibold">Continue a course →</button>
+        </Card>
+        <Card>
+          <h3 className="font-bold">Quiz performance</h3>
+          {latestQuizResult ? (
+            <><p className="mt-2 text-slate-700">Latest: {latestQuizResult.title} — {latestQuizResult.score}/{latestQuizResult.total}</p>
+              <p className="text-sm text-slate-500 mt-1">{quizHistory.length} completed attempt{quizHistory.length === 1 ? "" : "s"} saved in this browser</p></>
+          ) : <p className="mt-2 text-slate-500">No quiz attempts yet.</p>}
+          <button onClick={() => setActive("Quizzes")} className="mt-4 text-violet-700 text-sm font-semibold">Practice a quiz →</button>
+        </Card>
+      </div>
+
       <Card>
         <div className="flex justify-between items-center mb-4">
           <h3 className="font-bold text-lg">Recent Marks</h3>
@@ -443,24 +546,44 @@ function App() {
 
   const renderCourses = () => (
     <>
-      <PageTitle title="My Courses" subtitle="Explore your learning subjects and track progress." />
+      <PageTitle title="My Courses" subtitle="Study the topics and track your progress on this browser." />
+      {courseStorageError && <p role="alert" className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">{courseStorageError}</p>}
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
-        {courseData.map((course) => (
+        {COURSE_CATALOG.map((course) => {
+          const completed = courseProgress[course.id] || [];
+          const progress = Math.round((completed.length / course.lessons.length) * 100);
+          const expanded = selectedCourseId === course.id;
+          return (
           <Card key={course.name}>
             <div className={`w-14 h-14 ${course.color} rounded-xl text-white flex items-center justify-center font-bold text-lg`}>
               {course.code}
             </div>
             <h3 className="font-bold text-lg mt-5">{course.name}</h3>
-            <p className="text-sm text-slate-500 mt-2">Learning progress</p>
+            <p className="text-sm text-slate-500 mt-2">{course.lessons.length} guided topics</p>
             <div className="flex justify-between text-sm mt-5 mb-2">
-              <span>Completed</span><strong>{course.progress}%</strong>
+              <span>Topics completed</span><strong>{progress}%</strong>
             </div>
             <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-              <div className={`${course.color} h-full`} style={{ width: `${course.progress}%` }} />
+              <div className={`${course.color} h-full`} style={{ width: `${progress}%` }} />
             </div>
-            <p className="text-xs text-slate-400 mt-4">Demo course progress</p>
+            <button aria-expanded={expanded} onClick={() => setSelectedCourseId(expanded ? null : course.id)}
+              className="mt-4 rounded-lg border px-3 py-2 text-sm font-semibold hover:bg-slate-50">
+              {expanded ? "Hide topics" : "View topics"}
+            </button>
+            {expanded && <ul className="mt-4 space-y-3 border-t pt-4">
+              {course.lessons.map((lesson) => (
+                <li key={lesson.id} className="rounded-lg bg-slate-50 p-3">
+                  <label className="flex cursor-pointer items-start gap-2 font-medium">
+                    <input type="checkbox" checked={completed.includes(lesson.id)} onChange={() => toggleCourseLesson(course.id, lesson.id)} className="mt-1 accent-violet-600" />
+                    <span>{lesson.title}</span>
+                  </label>
+                  <p className="ml-6 mt-1 text-sm text-slate-500">{lesson.description}</p>
+                </li>
+              ))}
+            </ul>}
           </Card>
-        ))}
+          );
+        })}
       </div>
     </>
   );
@@ -491,20 +614,22 @@ function App() {
             <Plus size={18} /> {savingMark ? "Saving mark..." : "Add Mark"}
           </button>
         </form>
-        {markMessage && <p aria-live="polite" className="text-sm mt-3 text-violet-600">{markMessage}</p>}
+        {markMessage && <p aria-live="polite" className={`text-sm mt-3 ${markMessageType === "error" ? "text-red-600" : "text-emerald-700"}`}>{markMessage}</p>}
       </Card>
       <Card>
         <div className="flex justify-between items-center mb-5">
           <h3 className="font-bold">Marks History</h3>
-          <span className="text-violet-700 bg-violet-50 px-3 py-1 rounded-lg text-sm">Average: {average}%</span>
+          <span className="text-violet-700 bg-violet-50 px-3 py-1 rounded-lg text-sm">Average: {marks.length ? `${Math.round(marks.reduce((sum, mark) => sum + (Number(mark.maxScore) > 0 ? Number(mark.score) / Number(mark.maxScore) * 100 : 0), 0) / marks.length)}%` : "—"}</span>
         </div>
-        {loading ? <p>Loading marks...</p> : marks.length === 0 ? (
+        {loading ? <p className="text-slate-500">Loading marks...</p> : error ? (
+          <p role="alert" className="text-red-600">Unable to load marks. Please refresh and try again.</p>
+        ) : marks.length === 0 ? (
           <p className="text-slate-500">No marks recorded yet.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-500">
-                <tr><th className="p-3">Subject</th><th className="p-3">Topic</th><th className="p-3">Score</th><th className="p-3">Percentage</th></tr>
+                <tr><th className="p-3">Subject</th><th className="p-3">Topic</th><th className="p-3">Score</th><th className="p-3">Percentage</th><th className="p-3">Date</th></tr>
               </thead>
               <tbody>
                 {marks.map((mark) => (
@@ -513,8 +638,9 @@ function App() {
                     <td className="p-3">{mark.topic}</td>
                     <td className="p-3">{mark.score}/{mark.maxScore}</td>
                     <td className="p-3 text-violet-700 font-semibold">
-                      {mark.maxScore > 0 ? Math.round(mark.score / mark.maxScore * 100) : 0}%
+                      {Number(mark.maxScore) > 0 ? Math.round(Number(mark.score) / Number(mark.maxScore) * 100) : 0}%
                     </td>
+                    <td className="p-3">{mark.takenOn ? new Date(`${mark.takenOn}T00:00:00`).toLocaleDateString() : "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -532,14 +658,14 @@ function App() {
         <h3 className="font-bold mb-4">Add an Exam</h3>
         <form onSubmit={addExam} className="grid md:grid-cols-3 gap-3">
           <input value={examSubject} onChange={(e) => setExamSubject(e.target.value)}
-            placeholder="Subject name" required className="border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-violet-500" />
+            placeholder="Subject name" required maxLength={80} className="border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-violet-500" />
           <input type="date" value={examDate} onChange={(e) => setExamDate(e.target.value)}
             required className="border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-violet-500" />
-          <button className="bg-violet-600 text-white rounded-xl py-3 font-semibold flex justify-center items-center gap-2">
-            <Plus size={18} /> Add Exam
+          <button disabled={savingExam} className="bg-violet-600 disabled:opacity-50 text-white rounded-xl py-3 font-semibold flex justify-center items-center gap-2">
+            <Plus size={18} /> {savingExam ? "Saving exam..." : "Add Exam"}
           </button>
         </form>
-        {examMessage && <p className="text-sm mt-3 text-violet-600">{examMessage}</p>}
+        {examMessage && <p aria-live="polite" className={`text-sm mt-3 ${examMessageType === "error" ? "text-red-600" : "text-emerald-700"}`}>{examMessage}</p>}
       </Card>
       <Card>
         <h3 className="font-bold mb-4">Exam Schedule</h3>
@@ -548,9 +674,15 @@ function App() {
           <p className="text-slate-500">No exams added yet.</p> :
           exams.map((exam) => (
             <div key={exam.id} className="flex justify-between items-center border-b py-4">
-              <div><strong>{exam.subject}</strong><p className="text-sm text-slate-500 mt-1">{exam.examDate}</p></div>
-              <button onClick={() => deleteExam(exam.id)} aria-label={`Delete ${exam.subject} exam`}
-                className="text-red-500 p-2"><X size={18} /></button>
+              <div>
+                <strong>{exam.subject}</strong>
+                <p className="text-sm text-slate-500 mt-1">{exam.examDate ? new Date(`${exam.examDate}T00:00:00`).toLocaleDateString() : "Date unavailable"}</p>
+                <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs ${exam.examDate >= today ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
+                  {exam.examDate >= today ? "Upcoming" : "Past"}
+                </span>
+              </div>
+              <button disabled={deletingExamId === exam.id} onClick={() => deleteExam(exam.id)} aria-label={`Delete ${exam.subject} exam`}
+                className="text-red-500 disabled:opacity-50 p-2"><X size={18} /></button>
             </div>
           ))}
         {exams.length > 0 && <p className="text-xs text-slate-400 mt-4">Exam schedule is saved to your account.</p>}
@@ -569,9 +701,13 @@ function App() {
           className="mt-4 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white px-6 py-3 rounded-xl font-semibold">
           {asking ? "Thinking..." : "Ask AI"}
         </button>
-        {answer && <div className="mt-6 bg-violet-50 p-5 rounded-xl">
-          <h3 className="font-bold mb-2">Mentor Response</h3>
-          <div className="mentor-markdown text-slate-700 leading-7">
+        {mentorHistoryError && <p role="status" className="mt-4 text-sm text-amber-700">{mentorHistoryError}</p>}
+        {mentorError && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{mentorError}</p>}
+        <div className="mt-6 space-y-4">
+          {mentorMessages.map((message, index) => (
+          <div key={`${message.role}-${index}`} className={`rounded-xl p-5 ${message.role === "student" ? "bg-white border border-slate-200" : "bg-violet-50"}`}>
+            <h3 className="font-bold mb-2">{message.role === "student" ? "You" : "Mentor Response"}</h3>
+            {message.role === "student" ? <p className="whitespace-pre-wrap">{message.content}</p> : <div className="mentor-markdown text-slate-700 leading-7">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
@@ -600,48 +736,94 @@ function App() {
                 hr: (props) => <hr {...withoutMarkdownNode(props)} className="border-violet-200 my-4" />,
               }}
             >
-              {normalizeMentorMarkdown(answer)}
+              {normalizeMentorMarkdown(message.content)}
             </ReactMarkdown>
+            </div>}
           </div>
-        </div>}
+          ))}
+        </div>
       </Card>
     </>
   );
 
   const renderQuizzes = () => (
     <>
-      <PageTitle title="Quizzes" subtitle="Practice your knowledge with quick quizzes." />
+      <PageTitle title="Quizzes" subtitle="Answer each question, review explanations, and track your attempts in this browser." />
+      {quizStorageError && <p role="alert" className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">{quizStorageError}</p>}
       {quizIndex === null ? (
-        <div className="grid md:grid-cols-2 gap-5">
-          {quizData.map((quiz, index) => (
-            <Card key={quiz.title}>
-              <div className="bg-violet-50 text-violet-600 w-12 h-12 rounded-xl flex items-center justify-center"><ClipboardList /></div>
-              <h3 className="font-bold text-lg mt-4">{quiz.title}</h3>
-              <p className="text-slate-500 text-sm mt-2">{quiz.questions.length} questions · {quiz.subject}</p>
-              <button onClick={() => startQuiz(index)} className="mt-5 bg-violet-600 text-white px-5 py-3 rounded-xl font-semibold">Start Quiz</button>
-            </Card>
-          ))}
-        </div>
+        <>
+          <div className="grid md:grid-cols-2 gap-5">
+            {QUIZZES.map((quiz, index) => {
+              const attempts = quizHistory.filter((result) => result.quizId === quiz.id);
+              const latest = attempts.at(-1);
+              return (
+                <Card key={quiz.id}>
+                  <div className="bg-violet-50 text-violet-600 w-12 h-12 rounded-xl flex items-center justify-center"><ClipboardList /></div>
+                  <h3 className="font-bold text-lg mt-4">{quiz.title}</h3>
+                  <p className="text-slate-500 text-sm mt-2">{quiz.questions.length} questions · {quiz.subject}</p>
+                  <p className="text-sm text-slate-600 mt-3">{latest ? `Latest score: ${latest.score}/${latest.total} · ${attempts.length} attempt${attempts.length === 1 ? "" : "s"}` : "No attempts yet"}</p>
+                  <button onClick={() => startQuiz(index)} className="mt-5 bg-violet-600 text-white px-5 py-3 rounded-xl font-semibold">Start Quiz</button>
+                </Card>
+              );
+            })}
+          </div>
+          {quizHistory.length > 0 && <Card className="mt-6">
+            <h3 className="font-bold mb-3">Recent quiz history</h3>
+            <ul className="divide-y">
+              {[...quizHistory].reverse().slice(0, 10).map((result, index) => (
+                <li key={`${result.quizId}-${result.completedAt}-${index}`} className="flex justify-between gap-3 py-3 text-sm">
+                  <span>{result.title}</span><strong>{result.score}/{result.total}</strong>
+                </li>
+              ))}
+            </ul>
+          </Card>}
+        </>
       ) : (
         <Card>
           {quizFinished ? (
-            <div className="text-center py-8">
-              <CheckCircle2 size={50} className="text-emerald-500 mx-auto" />
-              <h2 className="text-2xl font-bold mt-4">Quiz Completed!</h2>
-              <p className="text-slate-500 mt-2">Your score: {quizScore}/{quizData[quizIndex].questions.length}</p>
-              <button onClick={() => setQuizIndex(null)} className="mt-6 bg-violet-600 text-white px-5 py-3 rounded-xl">Back to Quizzes</button>
-            </div>
+            <>
+              <div className="text-center py-6">
+                <CheckCircle2 size={50} className="text-emerald-500 mx-auto" />
+                <h2 className="text-2xl font-bold mt-4">Quiz Completed!</h2>
+                <p className="text-slate-500 mt-2">Your score: {calculateQuizScore(QUIZZES[quizIndex], quizAnswers)}/{QUIZZES[quizIndex].questions.length}</p>
+              </div>
+              <div className="space-y-4">
+                {QUIZZES[quizIndex].questions.map((item, index) => {
+                  const correct = quizAnswers[index] === item.answer;
+                  return <div key={item.q} className="rounded-xl border p-4">
+                    <h3 className="font-semibold">{index + 1}. {item.q}</h3>
+                    <p className={`mt-2 text-sm ${correct ? "text-emerald-700" : "text-red-700"}`}>
+                      Your answer: {item.options[quizAnswers[index]]} {correct ? "(correct)" : `· Correct answer: ${item.options[item.answer]}`}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-600">{item.explanation}</p>
+                  </div>;
+                })}
+              </div>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button onClick={() => startQuiz(quizIndex)} className="rounded-xl bg-violet-600 px-5 py-3 font-semibold text-white">Retry quiz</button>
+                <button onClick={() => setQuizIndex(null)} className="rounded-xl border px-5 py-3 font-semibold">Back to Quizzes</button>
+              </div>
+            </>
           ) : (
             <>
-              <p className="text-sm text-violet-600 mb-3">Question {quizQuestion + 1} of {quizData[quizIndex].questions.length}</p>
-              <h2 className="font-bold text-xl mb-6">{quizData[quizIndex].questions[quizQuestion].q}</h2>
+              <p className="text-sm text-violet-600 mb-3">Question {quizQuestion + 1} of {QUIZZES[quizIndex].questions.length} · {Object.keys(quizAnswers).length} answered</p>
+              <h2 className="font-bold text-xl mb-6">{QUIZZES[quizIndex].questions[quizQuestion].q}</h2>
               <div className="grid gap-3">
-                {quizData[quizIndex].questions[quizQuestion].options.map((option, index) => (
-                  <button key={option} onClick={() => answerQuiz(index)}
-                    className="text-left border rounded-xl p-4 hover:bg-violet-50 hover:border-violet-400 transition">
+                {QUIZZES[quizIndex].questions[quizQuestion].options.map((option, index) => (
+                  <button key={option} type="button" aria-pressed={quizAnswers[quizQuestion] === index}
+                    onClick={() => setQuizAnswers((answers) => ({ ...answers, [quizQuestion]: index }))}
+                    className={`text-left border rounded-xl p-4 hover:bg-violet-50 hover:border-violet-400 transition ${quizAnswers[quizQuestion] === index ? "border-violet-500 bg-violet-50 ring-2 ring-violet-200" : ""}`}>
                     {String.fromCharCode(65 + index)}. {option}
                   </button>
                 ))}
+              </div>
+              <div className="mt-6 flex flex-wrap justify-between gap-3">
+                <button type="button" disabled={quizQuestion === 0} onClick={() => setQuizQuestion((current) => current - 1)} className="rounded-xl border px-5 py-3 font-semibold disabled:opacity-40">Previous</button>
+                {quizQuestion < QUIZZES[quizIndex].questions.length - 1 ? (
+                  <button type="button" disabled={!Number.isInteger(quizAnswers[quizQuestion])} onClick={() => setQuizQuestion((current) => current + 1)} className="rounded-xl bg-violet-600 px-5 py-3 font-semibold text-white disabled:opacity-40">Next</button>
+                ) : (
+                  <button type="button" disabled={calculateQuizScore(QUIZZES[quizIndex], quizAnswers) === null} onClick={submitQuiz} className="rounded-xl bg-violet-600 px-5 py-3 font-semibold text-white disabled:opacity-40">Submit quiz</button>
+                )}
               </div>
             </>
           )}
@@ -653,28 +835,48 @@ function App() {
   const renderAnalytics = () => (
     <>
       <PageTitle title="Analytics" subtitle="Understand your academic performance." />
-      <div className="grid sm:grid-cols-3 gap-4 mb-6">
-        <Card><p className="text-slate-500 text-sm">Average Score</p><h2 className="text-3xl font-bold mt-3">{average}%</h2></Card>
-        <Card><p className="text-slate-500 text-sm">Marks Recorded</p><h2 className="text-3xl font-bold mt-3">{marks.length}</h2></Card>
-        <Card><p className="text-slate-500 text-sm">Subjects</p><h2 className="text-3xl font-bold mt-3">{new Set(marks.map(m => m.subject)).size}</h2></Card>
-      </div>
-      <Card>
-        <h3 className="font-bold mb-5">Score by Subject</h3>
-        {marks.length === 0 ? <p className="text-slate-500">Add marks to see your performance chart.</p> : (
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={marks.map(m => ({ subject: m.subject, score: m.maxScore > 0 ? Math.round(m.score / m.maxScore * 100) : 0 }))}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="subject" />
-                <YAxis domain={[0, 100]} />
-                <Tooltip />
-                <Bar dataKey="score" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+      {loading ? <Card><p className="text-slate-500">Loading analytics...</p></Card> : error ? (
+        <Card><p role="alert" className="text-red-600">Unable to load analytics. Please refresh and try again.</p></Card>
+      ) : !analytics ? <Card><p className="text-slate-500">Analytics are not available yet.</p></Card> : (
+        <>
+          <div className="grid sm:grid-cols-3 gap-4 mb-6">
+            <Card><p className="text-slate-500 text-sm">Average Score</p><h2 className="text-3xl font-bold mt-3">{analytics.marksCount ? `${analytics.averageScore}%` : "—"}</h2></Card>
+            <Card><p className="text-slate-500 text-sm">Marks Recorded</p><h2 className="text-3xl font-bold mt-3">{analytics.marksCount}</h2></Card>
+            <Card><p className="text-slate-500 text-sm">Subjects</p><h2 className="text-3xl font-bold mt-3">{analytics.subjects?.length || 0}</h2></Card>
           </div>
-        )}
-      </Card>
-      {analytics && <Card className="mt-6"><h3 className="font-bold mb-3">Backend Analytics</h3><pre className="text-xs whitespace-pre-wrap overflow-auto">{JSON.stringify(analytics, null, 2)}</pre></Card>}
+          <Card>
+            <h3 className="font-bold mb-5">Average score by subject</h3>
+            {!analytics.subjects?.length ? <p className="text-slate-500">No marks recorded yet. Add marks to see your subject analytics.</p> : (
+              <div className="h-72 min-w-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={analytics.subjects} margin={{ bottom: 12 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="subject" interval={0} angle={-15} textAnchor="end" height={55} />
+                    <YAxis domain={[0, 100]} unit="%" />
+                    <Tooltip formatter={(value) => [`${value}%`, "Average score"]} />
+                    <Bar dataKey="average" name="Average score" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </Card>
+          {analytics.subjects?.length > 0 && <Card className="mt-6">
+            <h3 className="font-bold mb-3">Insights from your marks</h3>
+            <ul className="space-y-2 text-sm text-slate-600">
+              {analytics.subjects.map((subject) => (
+                <li key={subject.subject} className="flex flex-wrap justify-between gap-2 border-b pb-2 last:border-0">
+                  <span><strong>{subject.subject}</strong>: average {subject.average}% · weakest topic {subject.weakestTopic || "not available"}</span>
+                  <span>{subject.trend > 0 ? `Up ${subject.trend}%` : subject.trend < 0 ? `Down ${Math.abs(subject.trend)}%` : "Trend not established"}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>}
+          {analytics.upcomingExams?.length > 0 && <Card className="mt-6">
+            <h3 className="font-bold mb-3">Upcoming exams</h3>
+            <ul className="space-y-2">{analytics.upcomingExams.map((exam) => <li key={exam.id} className="flex justify-between gap-3 text-sm"><span>{exam.subject}</span><time dateTime={exam.examDate}>{new Date(`${exam.examDate}T00:00:00`).toLocaleDateString()}</time></li>)}</ul>
+          </Card>}
+        </>
+      )}
     </>
   );
 
@@ -686,13 +888,16 @@ function App() {
           <div className="w-14 h-14 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center text-xl font-bold">{studentName[0]?.toUpperCase()}</div>
           <div><h3 className="font-bold text-lg">{studentName}</h3><p className="text-sm text-slate-500">Student ID: {studentId}</p></div>
         </div>
-        <button onClick={() => { loadData(); setSettingsMessage("Data refreshed."); }}
+        <button onClick={async () => { setSettingsMessage(await loadData() ? "Data refreshed." : "Data could not be refreshed."); }}
           className="border rounded-xl px-5 py-3 font-semibold hover:bg-slate-50">Refresh Data</button>
         {settingsMessage && <p className="text-sm text-emerald-600 mt-3">{settingsMessage}</p>}
         <div className="border-t mt-6 pt-6">
           <button onClick={() => {
-            localStorage.removeItem("studentId");
-            localStorage.removeItem("studentName");
+            safeStorageRemove("studentId");
+            safeStorageRemove("studentName");
+            setCourseProgress({});
+            setQuizHistory([]);
+            setMentorMessages([]);
             setStudentId("");
             setStudentName("");
           }} className="text-red-600 font-semibold flex items-center gap-2"><LogOut size={18}/> Sign out</button>
@@ -713,9 +918,9 @@ function App() {
           <p className="text-slate-500 mb-6">Create your student profile to get started.</p>
           <form onSubmit={registerStudent} className="space-y-4">
             <input value={registerName} onChange={e => setRegisterName(e.target.value)}
-              placeholder="Your full name" required className="w-full border rounded-xl px-4 py-3"/>
+              placeholder="Your full name" required maxLength={120} className="w-full border rounded-xl px-4 py-3"/>
             <input value={registerEmail} onChange={e => setRegisterEmail(e.target.value)}
-              type="email" placeholder="Email (optional)" className="w-full border rounded-xl px-4 py-3"/>
+              type="email" maxLength={200} placeholder="Email (optional)" className="w-full border rounded-xl px-4 py-3"/>
             {registerError && <p className="text-red-600 text-sm">{registerError}</p>}
             <button disabled={registering} className="w-full bg-violet-600 text-white rounded-xl py-3 font-semibold disabled:opacity-50">
               {registering ? "Creating profile..." : "Create Profile"}
@@ -748,7 +953,7 @@ function App() {
           ))}
         </nav>
         <div className="mt-auto">
-          <button onClick={() => setActive("Settings")} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-slate-500 hover:bg-slate-50"><Settings size={19}/> Settings</button>
+          <button onClick={() => { setActive("Settings"); setSidebarOpen(false); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-slate-500 hover:bg-slate-50"><Settings size={19}/> Settings</button>
           <div className="mt-5 p-4 rounded-2xl bg-violet-50">
             <div className="flex items-center gap-2 text-violet-700 font-semibold text-sm"><Flame size={18}/> Keep learning!</div>
             <p className="text-xs text-slate-500 mt-2">Consistency is the key to success.</p>
@@ -759,12 +964,15 @@ function App() {
       <main className="flex-1 min-w-0">
         <header className="h-20 bg-white border-b px-5 md:px-8 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button className="md:hidden p-2 rounded-lg hover:bg-slate-100" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={21}/></button>
+            <button className="md:hidden p-2 rounded-lg hover:bg-slate-100" onClick={() => setSidebarOpen(!sidebarOpen)}
+              aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={sidebarOpen}>
+              <Menu size={21}/>
+            </button>
             <div><p className="text-xs text-slate-400">Workspace / {active}</p><h2 className="font-bold text-lg">{active}</h2></div>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={loadData} className="p-2 rounded-xl hover:bg-slate-100" title="Refresh"><Clock size={19}/></button>
-            <Bell size={20}/>
+            <button onClick={loadData} className="p-2 rounded-xl hover:bg-slate-100" title="Refresh" aria-label="Refresh student data"><Clock size={19}/></button>
+            <Bell size={20} aria-hidden="true" />
             <div className="w-10 h-10 bg-violet-100 text-violet-700 rounded-full flex items-center justify-center font-bold">{studentName[0]?.toUpperCase()}</div>
           </div>
         </header>

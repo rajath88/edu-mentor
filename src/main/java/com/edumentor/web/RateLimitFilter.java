@@ -9,11 +9,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
 
 /** Fixed-window rate limit per client IP on the mentor endpoint, stored in Valkey. */
 @Component
@@ -22,15 +25,28 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private final StringRedisTemplate redis;
     private final int limit;
+    private final CorsConfiguration corsConfiguration;
 
-    public RateLimitFilter(StringRedisTemplate redis, @Value("${mentor.rate-limit-per-minute}") int limit) {
+    public RateLimitFilter(
+            StringRedisTemplate redis,
+            @Value("${mentor.rate-limit-per-minute}") int limit,
+            @Value("${app.cors.allowed-origin-patterns}") String allowedOriginPatterns
+    ) {
         this.redis = redis;
         this.limit = limit;
+        this.corsConfiguration = new CorsConfiguration();
+        this.corsConfiguration.setAllowedOriginPatterns(Arrays.stream(allowedOriginPatterns.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toList());
+        this.corsConfiguration.setAllowedMethods(Arrays.asList("GET", "POST", "DELETE", "OPTIONS"));
+        this.corsConfiguration.setAllowedHeaders(List.of("*"));
     }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest req) {
-        return !req.getRequestURI().startsWith("/api/mentor");
+        return !"POST".equalsIgnoreCase(req.getMethod())
+                || !req.getRequestURI().matches("^/api/mentor/[^/]+/ask$");
     }
 
     @Override
@@ -46,6 +62,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             }
             if (count != null && count > limit) {
                 res.setStatus(429);
+                applyAllowedCorsHeaders(req, res);
                 res.setContentType("application/json");
                 res.getWriter().write("{\"error\":\"Too many requests, slow down.\"}");
                 return;
@@ -56,5 +73,16 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
 
         chain.doFilter(req, res);
+    }
+
+    void applyAllowedCorsHeaders(HttpServletRequest req, HttpServletResponse res) {
+        String allowedOrigin = corsConfiguration.checkOrigin(req.getHeader("Origin"));
+        if (allowedOrigin == null) return;
+
+        res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+        res.addHeader("Vary", "Origin");
+        res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+        String requestedHeaders = req.getHeader("Access-Control-Request-Headers");
+        res.setHeader("Access-Control-Allow-Headers", requestedHeaders == null ? "*" : requestedHeaders);
     }
 }
