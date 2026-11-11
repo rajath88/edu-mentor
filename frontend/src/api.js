@@ -1,7 +1,11 @@
+
 import axios from "axios";
 
+const baseURL = import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV ? "http://localhost:8080/api" : "/api");
+
 const api = axios.create({
-  baseURL: "https://edu-mentor-1.onrender.com/api",
+  baseURL,
 });
 
 export default api;

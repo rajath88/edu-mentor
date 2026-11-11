@@ -34,6 +34,20 @@ public class MarkService {
         return e;
     }
 
+    public List<Exam> listExams(Long studentId) {
+        requireStudent(studentId);
+        return exams.findByStudentIdOrderByExamDateAsc(studentId);
+    }
+
+    public void deleteExam(Long studentId, Long examId) {
+        requireStudent(studentId);
+        Exam exam = exams.findById(examId)
+                .filter(existing -> studentId.equals(existing.getStudentId()))
+                .orElseThrow(() -> new IllegalArgumentException("Exam " + examId + " not found"));
+        exams.delete(exam);
+        analytics.invalidate(studentId);
+    }
+
     public List<Mark> listMarks(Long studentId) { return marks.findByStudentIdOrderByTakenOnAsc(studentId); }
 
     private void requireStudent(Long id) {

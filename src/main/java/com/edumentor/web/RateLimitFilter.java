@@ -4,7 +4,10 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -12,14 +15,17 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.time.Duration;
 
-/** Fixed-window rate limit per client IP on the (costly) mentor endpoint, stored in Valkey. */
+/** Fixed-window rate limit per client IP on the mentor endpoint, stored in Valkey. */
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
+    private static final Logger log = LoggerFactory.getLogger(RateLimitFilter.class);
+
     private final StringRedisTemplate redis;
     private final int limit;
 
     public RateLimitFilter(StringRedisTemplate redis, @Value("${mentor.rate-limit-per-minute}") int limit) {
-        this.redis = redis; this.limit = limit;
+        this.redis = redis;
+        this.limit = limit;
     }
 
     @Override
@@ -32,14 +38,23 @@ public class RateLimitFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String ip = req.getHeader("X-Real-IP") != null ? req.getHeader("X-Real-IP") : req.getRemoteAddr();
         String key = "rl:" + ip + ":" + (System.currentTimeMillis() / 60_000);
-        Long count = redis.opsForValue().increment(key);
-        if (count != null && count == 1) redis.expire(key, Duration.ofMinutes(2));
-        if (count != null && count > limit) {
-            res.setStatus(429);
-            res.setContentType("application/json");
-            res.getWriter().write("{\"error\":\"Too many requests, slow down.\"}");
-            return;
+
+        try {
+            Long count = redis.opsForValue().increment(key);
+            if (count != null && count == 1) {
+                redis.expire(key, Duration.ofMinutes(2));
+            }
+            if (count != null && count > limit) {
+                res.setStatus(429);
+                res.setContentType("application/json");
+                res.getWriter().write("{\"error\":\"Too many requests, slow down.\"}");
+                return;
+            }
+        } catch (DataAccessException ex) {
+            // Keep the demo usable if Valkey has a brief outage; the limiter is best-effort.
+            log.warn("Valkey is unavailable; continuing without the mentor rate limiter: {}", ex.getMessage());
         }
+
         chain.doFilter(req, res);
     }
 }

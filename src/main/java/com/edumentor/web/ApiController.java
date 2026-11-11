@@ -9,22 +9,21 @@ import com.edumentor.service.MarkService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
-@CrossOrigin(origins = {
-    "http://localhost:5173",
-    "https://edu-mentor-two.vercel.app",
-    "https://edu-mentor-tzscc169y-rajath88.vercel.app",
-    "https://edu-mentor-12vwx0fbs-rajath88.vercel.app"
-})
 
 @RestController
 @RequestMapping("/api")
 public class ApiController {
+
+    private static final Logger log = LoggerFactory.getLogger(ApiController.class);
 
     public record StudentReq(@NotBlank String name, String email) {}
     public record MarkReq(@NotBlank String subject, @NotBlank String topic,
@@ -68,17 +67,28 @@ public class ApiController {
         return marks.addExam(id, r.subject(), r.examDate());
     }
 
+    @GetMapping("/students/{id}/exams")
+    public List<Exam> exams(@PathVariable Long id) {
+        return marks.listExams(id);
+    }
+
+    @DeleteMapping("/students/{id}/exams/{examId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteExam(@PathVariable Long id, @PathVariable Long examId) {
+        marks.deleteExam(id, examId);
+    }
+
     @GetMapping("/students/{id}/analytics")
     public AnalyticsService.Analytics analytics(@PathVariable Long id) {
         return analytics.compute(id);
     }
 
     @PostMapping("/mentor/{id}/ask")
-    public Map<String, String> ask(@PathVariable String id,
-                                   @RequestBody @Valid AskReq r) {
+    public ResponseEntity<Map<String, String>> ask(@PathVariable String id,
+                                                    @RequestBody @Valid AskReq r) {
 
         if (id == null || id.equalsIgnoreCase("null") || id.isBlank()) {
-            return Map.of("answer", "Please enter your name first to use Mentor.");
+            return ResponseEntity.ok(Map.of("answer", "Please enter your name first to use Mentor."));
         }
 
         Long studentId;
@@ -86,15 +96,22 @@ public class ApiController {
         try {
             studentId = Long.valueOf(id);
         } catch (NumberFormatException e) {
-            return Map.of("answer", "Please enter your name first to use Mentor.");
+            return ResponseEntity.ok(Map.of("answer", "Please enter your name first to use Mentor."));
         }
 
-        String answer = agent.run(studentId, r.question());
+        final String answer;
+        try {
+            answer = agent.run(studentId, r.question());
+        } catch (RuntimeException e) {
+            log.error("AI Mentor request failed for student {}", studentId, e);
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", "AI Mentor is temporarily unavailable. Please try again."));
+        }
 
         messages.save(new MentorMessage(studentId, "student", r.question()));
         messages.save(new MentorMessage(studentId, "mentor", answer));
 
-        return Map.of("answer", answer);
+        return ResponseEntity.ok(Map.of("answer", answer));
     }
 
     @GetMapping("/mentor/{id}/history")
@@ -105,6 +122,7 @@ public class ApiController {
     @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public Map<String, String> notFound(IllegalArgumentException e) {
-        return Map.of("error", e.getMessage());
+        String message = e.getMessage();
+        return Map.of("error", message == null || message.isBlank() ? "Resource not found." : message);
     }
 }

@@ -11,4 +11,5 @@ RUN useradd -r -u 1001 app
 COPY --from=build /app/target/edu-mentor-0.1.0.jar app.jar
 USER app
 EXPOSE 8080
-ENTRYPOINT ["java","-XX:MaxRAMPercentage=75","-jar","app.jar"]
+# Keep the JVM heap/native footprint conservative on small cloud instances.
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=60.0", "-XX:+UseSerialGC", "-jar", "app.jar"]

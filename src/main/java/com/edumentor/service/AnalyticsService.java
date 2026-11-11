@@ -17,7 +17,9 @@ public class AnalyticsService {
 
     public record SubjectStats(String subject, double average, double trend,
                                String weakestTopic, Long daysToExam) implements Serializable {}
-    public record Analytics(Long studentId, List<SubjectStats> subjects) implements Serializable {}
+    public record UpcomingExam(Long id, String subject, LocalDate examDate) implements Serializable {}
+    public record Analytics(Long studentId, List<SubjectStats> subjects, int marksCount,
+                            double averageScore, List<UpcomingExam> upcomingExams) implements Serializable {}
 
     private final MarkRepo marks;
     private final ExamRepo exams;
@@ -27,12 +29,16 @@ public class AnalyticsService {
     }
 
     /** Cached in Valkey; evicted whenever the student's marks or exams change. */
-    @Cacheable(value = "analytics", key = "#studentId")
+    @Cacheable(value = "analytics-v2", key = "#studentId")
     public Analytics compute(Long studentId) {
         List<Mark> all = marks.findByStudentIdOrderByTakenOnAsc(studentId);
         Map<String, LocalDate> nextExam = new HashMap<>();
-        for (Exam e : exams.findByStudentIdOrderByExamDateAsc(studentId)) {
-            if (!e.getExamDate().isBefore(LocalDate.now())) nextExam.putIfAbsent(e.getSubject(), e.getExamDate());
+        LocalDate today = LocalDate.now();
+        List<Exam> upcoming = exams.findByStudentIdOrderByExamDateAsc(studentId).stream()
+                .filter(exam -> !exam.getExamDate().isBefore(today))
+                .toList();
+        for (Exam e : upcoming) {
+            nextExam.putIfAbsent(e.getSubject(), e.getExamDate());
         }
         Map<String, List<Mark>> bySubject = all.stream()
             .collect(Collectors.groupingBy(mark -> Objects.requireNonNull(mark).getSubject(),
@@ -44,20 +50,22 @@ public class AnalyticsService {
             out.add(new SubjectStats(subject, round(avg), round(trend(list)), weakestTopic(list),
                     nextExam.containsKey(subject) ? ChronoUnit.DAYS.between(LocalDate.now(), nextExam.get(subject)) : null));
         });
-        return new Analytics(studentId, out);
+        double averageScore = all.stream().mapToDouble(Mark::percent).average().orElse(0);
+        List<UpcomingExam> upcomingSummaries = upcoming.stream()
+                .map(exam -> new UpcomingExam(exam.getId(), exam.getSubject(), exam.getExamDate()))
+                .toList();
+        return new Analytics(studentId, out, all.size(), round(averageScore), upcomingSummaries);
     }
 
-    @CacheEvict(value = "analytics", key = "#studentId")
+    @CacheEvict(value = "analytics-v2", key = "#studentId")
     public void invalidate(Long studentId) {}
 
     /** Average of the latest 3 scores minus average of everything before them. */
     private double trend(List<Mark> list) {
         if (list.size() < 4) return 0;
         int split = list.size() - 3;
-        double recent = list.subList(split, list.size()).stream()
-            .mapToDouble(mark -> Objects.requireNonNull(mark).percent()).average().orElse(0);
-        double earlier = list.subList(0, split).stream()
-            .mapToDouble(mark -> Objects.requireNonNull(mark).percent()).average().orElse(0);
+        double recent = list.subList(split, list.size()).stream().mapToDouble(Mark::percent).average().orElse(0);
+        double earlier = list.subList(0, split).stream().mapToDouble(Mark::percent).average().orElse(0);
         return recent - earlier;
     }
 

@@ -7,7 +7,7 @@ import {
   CalendarDays, Award, LogOut, Plus, CheckCircle2, X,
 } from "lucide-react";
 import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
+  ResponsiveContainer, XAxis, YAxis,
   Tooltip, CartesianGrid, BarChart, Bar,
 } from "recharts";
 
@@ -49,6 +49,45 @@ const menuItems = [
   { label: "Analytics", icon: BarChart3 },
 ];
 
+function getErrorMessage(error, fallback) {
+  const data = error?.response?.data;
+  const candidates = [
+    typeof data?.error === "string" ? data.error : data?.error?.message,
+    typeof data?.message === "string" ? data.message : data?.message?.message,
+    typeof error?.message === "string" ? error.message : null,
+  ];
+  return candidates.find((value) => typeof value === "string" && value.trim()) || fallback;
+}
+
+async function requestStudentData(studentId) {
+  const [marksResponse, analyticsResponse, examsResponse] = await Promise.all([
+    api.get(`/students/${studentId}/marks`),
+    api.get(`/students/${studentId}/analytics`),
+    api.get(`/students/${studentId}/exams`),
+  ]);
+  return {
+    marks: Array.isArray(marksResponse.data) ? marksResponse.data : [],
+    analytics: analyticsResponse.data,
+    exams: Array.isArray(examsResponse.data) ? examsResponse.data : [],
+    upcomingExams: Array.isArray(analyticsResponse.data?.upcomingExams)
+      ? analyticsResponse.data.upcomingExams
+      : [],
+  };
+}
+
+const Card = ({ children, className = "" }) => (
+  <div className={`bg-white border border-slate-200 rounded-2xl p-5 md:p-6 ${className}`}>
+    {children}
+  </div>
+);
+
+const PageTitle = ({ title, subtitle }) => (
+  <div className="mb-7">
+    <h1 className="text-2xl md:text-3xl font-bold text-slate-900">{title}</h1>
+    <p className="text-slate-500 mt-2">{subtitle}</p>
+  </div>
+);
+
 function App() {
   const [active, setActive] = useState("Dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -62,7 +101,8 @@ function App() {
 
   const [marks, setMarks] = useState([]);
   const [analytics, setAnalytics] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [upcomingExams, setUpcomingExams] = useState([]);
+  const [loading, setLoading] = useState(() => Boolean(localStorage.getItem("studentId")));
   const [error, setError] = useState("");
 
   const [question, setQuestion] = useState("");
@@ -71,10 +111,15 @@ function App() {
 
   const [examSubject, setExamSubject] = useState("");
   const [examDate, setExamDate] = useState("");
-  const [exams, setExams] = useState(
-    JSON.parse(localStorage.getItem("eduExams") || "[]")
-  );
+  const [exams, setExams] = useState([]);
   const [examMessage, setExamMessage] = useState("");
+  const [markSubject, setMarkSubject] = useState("");
+  const [markTopic, setMarkTopic] = useState("");
+  const [markScore, setMarkScore] = useState("");
+  const [markMaxScore, setMarkMaxScore] = useState("");
+  const [markDate, setMarkDate] = useState("");
+  const [markMessage, setMarkMessage] = useState("");
+  const [savingMark, setSavingMark] = useState(false);
 
   const [quizIndex, setQuizIndex] = useState(null);
   const [quizQuestion, setQuizQuestion] = useState(0);
@@ -87,35 +132,52 @@ function App() {
 
   const loadData = async () => {
     if (!studentId) return;
-
     setLoading(true);
     setError("");
-
     try {
-      const [marksResponse, analyticsResponse] = await Promise.allSettled([
-        api.get(`/students/${studentId}/marks`),
-        api.get(`/students/${studentId}/analytics`),
-      ]);
-
-      if (marksResponse.status === "fulfilled") {
-        setMarks(Array.isArray(marksResponse.value.data) ? marksResponse.value.data : []);
-      } else {
-        setError("Unable to load marks. Please refresh.");
-      }
-
-      if (analyticsResponse.status === "fulfilled") {
-        setAnalytics(analyticsResponse.value.data);
-      }
-    } catch {
-      setError("Unable to load student data.");
+      const data = await requestStudentData(studentId);
+      setMarks(data.marks);
+      setAnalytics(data.analytics);
+      setExams(data.exams);
+      setUpcomingExams(data.upcomingExams);
+    } catch (err) {
+      setMarks([]);
+      setAnalytics(null);
+      setExams([]);
+      setUpcomingExams([]);
+      setError(getErrorMessage(err, "Unable to load student data. Please refresh."));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (isRegistered) loadData();
-  }, [studentId]);
+    if (!isRegistered) return undefined;
+
+    let current = true;
+    requestStudentData(studentId)
+      .then((data) => {
+        if (!current) return;
+        setMarks(data.marks);
+        setAnalytics(data.analytics);
+        setExams(data.exams);
+        setUpcomingExams(data.upcomingExams);
+        setError("");
+      })
+      .catch((err) => {
+        if (!current) return;
+        setMarks([]);
+        setAnalytics(null);
+        setExams([]);
+        setUpcomingExams([]);
+        setError(getErrorMessage(err, "Unable to load student data. Please refresh."));
+      })
+      .finally(() => {
+        if (current) setLoading(false);
+      });
+
+    return () => { current = false; };
+  }, [isRegistered, studentId]);
 
   const registerStudent = async (e) => {
     e.preventDefault();
@@ -131,22 +193,20 @@ function App() {
       });
 
       const id = response.data.id;
-      const name = response.data.name || registerName.trim();
+      const name = typeof response.data.name === "string" && response.data.name.trim()
+        ? response.data.name
+        : registerName.trim();
 
       if (!id) throw new Error("Student ID was not returned.");
 
       localStorage.setItem("studentId", String(id));
       localStorage.setItem("studentName", name);
 
+      setLoading(true);
       setStudentId(String(id));
       setStudentName(name);
     } catch (err) {
-      setRegisterError(
-  err.response?.data?.error?.message ||
-  err.response?.data?.message ||
-  err.message ||
-  "Registration failed."
-);
+      setRegisterError(getErrorMessage(err, "Registration failed."));
     } finally {
       setRegistering(false);
     }
@@ -160,9 +220,10 @@ function App() {
 
     try {
       const response = await api.post(`/mentor/${studentId}/ask`, { question });
-      setAnswer(response.data.answer || JSON.stringify(response.data));
+      const result = response.data?.answer;
+      setAnswer(typeof result === "string" ? result : JSON.stringify(result ?? response.data));
     } catch (err) {
-      setAnswer(err.response?.data?.error || err.message || "Mentor is unavailable.");
+      setAnswer(getErrorMessage(err, "Mentor is unavailable."));
     } finally {
       setAsking(false);
     }
@@ -177,31 +238,52 @@ function App() {
         subject: examSubject.trim(),
         examDate,
       });
-
-      const newExam = {
-        id: Date.now(),
-        subject: examSubject.trim(),
-        examDate,
-      };
-
-      const updated = [...exams, newExam].sort(
-        (a, b) => new Date(a.examDate) - new Date(b.examDate)
-      );
-
-      setExams(updated);
-      localStorage.setItem("eduExams", JSON.stringify(updated));
       setExamSubject("");
       setExamDate("");
       setExamMessage("Exam added successfully!");
+      await loadData();
     } catch (err) {
-      setExamMessage(err.response?.data?.error || "Could not save exam.");
+      setExamMessage(getErrorMessage(err, "Could not save exam."));
     }
   };
 
-  const deleteExam = (id) => {
-    const updated = exams.filter((exam) => exam.id !== id);
-    setExams(updated);
-    localStorage.setItem("eduExams", JSON.stringify(updated));
+  const deleteExam = async (id) => {
+    setExamMessage("");
+    try {
+      await api.delete(`/students/${studentId}/exams/${id}`);
+      setExamMessage("Exam deleted successfully.");
+      await loadData();
+    } catch (err) {
+      setExamMessage(getErrorMessage(err, "Could not delete exam."));
+    }
+  };
+
+  const addMark = async (e) => {
+    e.preventDefault();
+    if (!markSubject.trim() || !markTopic.trim() || markScore === "" || markMaxScore === "") return;
+
+    setSavingMark(true);
+    setMarkMessage("");
+    try {
+      await api.post(`/students/${studentId}/marks`, {
+        subject: markSubject.trim(),
+        topic: markTopic.trim(),
+        score: Number(markScore),
+        maxScore: Number(markMaxScore),
+        takenOn: markDate || null,
+      });
+      setMarkSubject("");
+      setMarkTopic("");
+      setMarkScore("");
+      setMarkMaxScore("");
+      setMarkDate("");
+      setMarkMessage("Mark added successfully.");
+      await loadData();
+    } catch (err) {
+      setMarkMessage(getErrorMessage(err, "Could not save mark."));
+    } finally {
+      setSavingMark(false);
+    }
   };
 
   const startQuiz = (index) => {
@@ -236,24 +318,11 @@ function App() {
     : 0;
 
   const statCards = [
-    { title: "Courses Enrolled", value: "04", icon: BookOpen, color: "violet" },
-    { title: "Study Hours", value: "24.5h", icon: Clock, color: "blue" },
-    { title: "Average Score", value: `${average}%`, icon: Target, color: "emerald" },
-    { title: "Learning Streak", value: "7 Days", icon: Flame, color: "orange" },
+    { title: "Marks Recorded", value: analytics?.marksCount ?? 0, icon: Award, color: "violet" },
+    { title: "Subjects Tracked", value: analytics?.subjects?.length ?? 0, icon: BookOpen, color: "blue" },
+    { title: "Average Score", value: analytics?.marksCount ? `${analytics.averageScore}%` : "—", icon: Target, color: "emerald" },
+    { title: "Upcoming Exams", value: upcomingExams.length, icon: CalendarDays, color: "orange" },
   ];
-
-  const Card = ({ children, className = "" }) => (
-    <div className={`bg-white border border-slate-200 rounded-2xl p-5 md:p-6 ${className}`}>
-      {children}
-    </div>
-  );
-
-  const PageTitle = ({ title, subtitle }) => (
-    <div className="mb-7">
-      <h1 className="text-2xl md:text-3xl font-bold text-slate-900">{title}</h1>
-      <p className="text-slate-500 mt-2">{subtitle}</p>
-    </div>
-  );
 
   const renderDashboard = () => (
     <>
@@ -286,9 +355,9 @@ function App() {
                 <div className={`p-2 rounded-xl ${colors[stat.color]}`}><Icon size={19} /></div>
               </div>
               <p className="text-2xl font-bold text-slate-900 mt-4">
-                {stat.title === "Average Score" && loading ? "..." : stat.value}
+                {loading ? "..." : error ? "—" : stat.value}
               </p>
-              <p className="text-xs text-slate-400 mt-2">Learning overview</p>
+              <p className="text-xs text-slate-400 mt-2">From your academic records</p>
             </Card>
           );
         })}
@@ -296,50 +365,43 @@ function App() {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
         <Card className="xl:col-span-2">
-          <h3 className="font-bold text-slate-900">Study Activity</h3>
-          <p className="text-sm text-slate-400 mt-1 mb-5">Weekly study hours (sample data)</p>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={[
-                { day: "Mon", hours: 2 }, { day: "Tue", hours: 3.5 },
-                { day: "Wed", hours: 2.8 }, { day: "Thu", hours: 4 },
-                { day: "Fri", hours: 3.2 }, { day: "Sat", hours: 5 },
-                { day: "Sun", hours: 4.2 },
-              ]}>
-                <defs>
-                  <linearGradient id="studyGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="day" axisLine={false} tickLine={false} />
-                <YAxis axisLine={false} tickLine={false} />
-                <Tooltip />
-                <Area dataKey="hours" stroke="#8b5cf6" strokeWidth={3} fill="url(#studyGradient)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          <h3 className="font-bold text-slate-900">Average Score by Subject</h3>
+          <p className="text-sm text-slate-400 mt-1 mb-5">Calculated from your recorded marks</p>
+          {loading ? <p className="text-slate-500">Loading analytics...</p> : error ?
+            <p className="text-red-600">Unable to load analytics. Please refresh.</p> :
+            !analytics?.subjects?.length ? <p className="text-slate-500">Add marks to see subject analytics.</p> :
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={analytics.subjects.map(({ subject, average: score }) => ({ subject, score }))}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis dataKey="subject" axisLine={false} tickLine={false} />
+                  <YAxis domain={[0, 100]} unit="%" axisLine={false} tickLine={false} />
+                  <Tooltip formatter={(value) => [`${value}%`, "Average score"]} />
+                  <Bar dataKey="score" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>}
         </Card>
 
         <Card>
-          <h3 className="font-bold text-slate-900">Course Progress</h3>
-          <p className="text-sm text-slate-400 mt-1 mb-6">Completion overview</p>
-          <div className="space-y-5">
-            {courseData.slice(0, 3).map((course) => (
-              <div key={course.name}>
-                <div className="flex justify-between text-sm mb-2">
-                  <span>{course.name}</span><span>{course.progress}%</span>
-                </div>
-                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div className={`${course.color} h-full`} style={{ width: `${course.progress}%` }} />
-                </div>
-              </div>
-            ))}
-          </div>
-          <button onClick={() => setActive("Analytics")}
-            className="mt-7 w-full border rounded-xl py-3 text-sm font-semibold hover:bg-slate-50">
-            View analytics
+          <h3 className="font-bold text-slate-900">Upcoming Exams</h3>
+          <p className="text-sm text-slate-400 mt-1 mb-4">From your saved exam schedule</p>
+          {loading ? <p className="text-slate-500">Loading exams...</p> : error ?
+            <p className="text-red-600">Unable to load exams.</p> : upcomingExams.length === 0 ?
+              <p className="text-slate-500">No upcoming exams scheduled.</p> :
+              <div className="space-y-3">
+                {upcomingExams.slice(0, 5).map((exam) => (
+                  <div key={exam.id} className="flex justify-between gap-3 border-b last:border-0 pb-3">
+                    <span className="font-medium text-slate-700">{exam.subject}</span>
+                    <time className="text-sm text-slate-500" dateTime={exam.examDate}>
+                      {new Date(`${exam.examDate}T00:00:00`).toLocaleDateString()}
+                    </time>
+                  </div>
+                ))}
+              </div>}
+          <button onClick={() => setActive("Exams")}
+            className="mt-5 w-full border rounded-xl py-3 text-sm font-semibold hover:bg-slate-50">
+            Manage exams
           </button>
         </Card>
       </div>
@@ -349,7 +411,8 @@ function App() {
           <h3 className="font-bold text-lg">Recent Marks</h3>
           <button onClick={() => setActive("Marks")} className="text-violet-600 text-sm font-semibold">View all →</button>
         </div>
-        {loading ? <p className="text-slate-500">Loading marks...</p> :
+        {loading ? <p className="text-slate-500">Loading marks...</p> : error ?
+          <p className="text-red-600">Unable to load marks. Please refresh.</p> :
           marks.length === 0 ? <p className="text-slate-500">No marks available yet.</p> :
           marks.slice(0, 5).map((mark) => (
             <div key={mark.id} className="flex justify-between border-b last:border-0 py-3">
@@ -396,6 +459,31 @@ function App() {
   const renderMarks = () => (
     <>
       <PageTitle title="My Marks" subtitle="Your scores and academic performance." />
+      <Card className="mb-6">
+        <h3 className="font-bold mb-4">Add a Mark</h3>
+        <form onSubmit={addMark} className="grid md:grid-cols-2 xl:grid-cols-5 gap-3">
+          <input value={markSubject} onChange={(e) => setMarkSubject(e.target.value)}
+            placeholder="Subject" required maxLength={80}
+            className="border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-violet-500" />
+          <input value={markTopic} onChange={(e) => setMarkTopic(e.target.value)}
+            placeholder="Topic" required maxLength={120}
+            className="border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-violet-500" />
+          <input type="number" value={markScore} onChange={(e) => setMarkScore(e.target.value)}
+            placeholder="Score" required min="0" step="0.01"
+            className="border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-violet-500" />
+          <input type="number" value={markMaxScore} onChange={(e) => setMarkMaxScore(e.target.value)}
+            placeholder="Maximum score" required min="0.01" step="0.01"
+            className="border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-violet-500" />
+          <input type="date" value={markDate} onChange={(e) => setMarkDate(e.target.value)}
+            aria-label="Mark date"
+            className="border rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-violet-500" />
+          <button disabled={savingMark}
+            className="md:col-span-2 xl:col-span-5 bg-violet-600 disabled:opacity-50 text-white rounded-xl py-3 font-semibold flex justify-center items-center gap-2">
+            <Plus size={18} /> {savingMark ? "Saving mark..." : "Add Mark"}
+          </button>
+        </form>
+        {markMessage && <p aria-live="polite" className="text-sm mt-3 text-violet-600">{markMessage}</p>}
+      </Card>
       <Card>
         <div className="flex justify-between items-center mb-5">
           <h3 className="font-bold">Marks History</h3>
@@ -446,14 +534,17 @@ function App() {
       </Card>
       <Card>
         <h3 className="font-bold mb-4">Exam Schedule</h3>
-        {exams.length === 0 ? <p className="text-slate-500">No exams added yet.</p> :
+        {loading ? <p className="text-slate-500">Loading exams...</p> : error ?
+          <p className="text-red-600">Unable to load exams. Please refresh.</p> : exams.length === 0 ?
+          <p className="text-slate-500">No exams added yet.</p> :
           exams.map((exam) => (
             <div key={exam.id} className="flex justify-between items-center border-b py-4">
               <div><strong>{exam.subject}</strong><p className="text-sm text-slate-500 mt-1">{exam.examDate}</p></div>
-              <button onClick={() => deleteExam(exam.id)} className="text-red-500 p-2"><X size={18} /></button>
+              <button onClick={() => deleteExam(exam.id)} aria-label={`Delete ${exam.subject} exam`}
+                className="text-red-500 p-2"><X size={18} /></button>
             </div>
           ))}
-        <p className="text-xs text-slate-400 mt-4">Exam schedule is saved in this browser.</p>
+        {exams.length > 0 && <p className="text-xs text-slate-400 mt-4">Exam schedule is saved to your account.</p>}
       </Card>
     </>
   );
