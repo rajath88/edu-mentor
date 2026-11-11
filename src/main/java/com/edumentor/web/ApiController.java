@@ -2,6 +2,7 @@
 package com.edumentor.web;
 
 import com.edumentor.agent.MentorAgent;
+import com.edumentor.agent.MentorRequestException;
 import com.edumentor.domain.*;
 import com.edumentor.domain.Repos.MessageRepo;
 import com.edumentor.service.AnalyticsService;
@@ -102,6 +103,9 @@ public class ApiController {
         final String answer;
         try {
             answer = agent.run(studentId, r.question());
+        } catch (MentorRequestException e) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             log.error("AI Mentor request failed for student {}", studentId, e);
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)

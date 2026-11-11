@@ -3,9 +3,13 @@ package com.edumentor.agent;
 
 import com.edumentor.service.AnalyticsService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.model.chat.ChatModel;
 import org.bsc.langgraph4j.CompiledGraph;
 import org.bsc.langgraph4j.StateGraph;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -18,15 +22,19 @@ import static org.bsc.langgraph4j.action.AsyncNodeAction.node_async;
 @Component
 public class MentorAgent {
 
+    private static final Logger log = LoggerFactory.getLogger(MentorAgent.class);
     private static final int MAX_REVISIONS = 2;
 
     private final CompiledGraph<MentorState> graph;
+    private final String apiKey;
 
     public MentorAgent(
             ChatModel llm,
             AnalyticsService analyticsService,
-            ObjectMapper json
+            ObjectMapper json,
+            @Value("${llm.api-key:}") String apiKey
     ) throws Exception {
+        this.apiKey = apiKey;
 
         StateGraph<MentorState> g =
                 new StateGraph<>(Map.of(), MentorState::new);
@@ -181,15 +189,22 @@ public class MentorAgent {
                     .map(state -> state.plan())
                     .orElse("The mentor could not produce an answer.");
 
-        } catch (Exception e) {
+        } catch (Exception failure) {
+            HttpException httpFailure = GeminiErrorDetails.findHttpException(failure);
+            if (httpFailure != null) {
+                String body = GeminiErrorDetails.sanitize(httpFailure.getMessage(), apiKey);
+                log.error("Gemini API request failed: HTTP {} responseBody={}",
+                        httpFailure.statusCode(), body);
+                throw new MentorRequestException(
+                        GeminiErrorDetails.clientMessage(httpFailure.statusCode())
+                );
+            }
 
-            System.out.println("========== MENTOR ERROR ==========");
-            e.printStackTrace();
-
-            throw new RuntimeException(
-                    "MentorAgent failed: " + e.getMessage(),
-                    e
-            );
+            Throwable rootCause = GeminiErrorDetails.rootCause(failure);
+            log.error("AI Mentor workflow failed: causeType={} causeMessage={}",
+                    rootCause.getClass().getName(),
+                    GeminiErrorDetails.sanitize(rootCause.getMessage(), apiKey));
+            throw new MentorRequestException("AI Mentor is temporarily unavailable. Please try again.");
         }
     }
 
