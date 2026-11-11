@@ -14,7 +14,7 @@ flowchart LR
   S --> P[(PostgreSQL)]
   S --> V[(Valkey cache and counters)]
   C --> G[LangGraph4j MentorAgent]
-  G --> L[Gemini ChatModel via LangChain4j]
+  G --> L[Groq ChatModel via LangChain4j OpenAI-compatible client]
 ~~~
 
 ## Frontend → backend → database flow
@@ -52,7 +52,7 @@ flowchart TD
   S --> O[Return answer JSON]
 ~~~
 
-Mentor state contains student ID, question, analytics JSON, candidate response, critique, and iteration count. AiConfig reads the server-side `LLM_API_KEY`, `LLM_MODEL` (default `gemini-3.5-flash-lite`), and optional `LLM_BASE_URL`; temperature is 0.4 and timeout is 60 seconds. Rate limit is 10 requests/minute per selected client IP and fails open on Valkey data-access errors.
+Mentor state contains student ID, question, analytics JSON, candidate response, critique, and iteration count. AiConfig reads server-side `LLM_API_KEY`, `LLM_MODEL` (default `openai/gpt-oss-120b`), and optional `LLM_BASE_URL` (default `https://api.groq.com/openai/v1/`); temperature is 0.4 and timeout is 180 seconds. Rate limit is 10 requests/minute per selected client IP and fails open on Valkey data-access errors.
 
 ## Deployment architecture in Compose
 
@@ -63,7 +63,7 @@ flowchart LR
   N -->|API and health proxy| A[Java 21 app]
   A -->|JDBC| P[(PostgreSQL 16)]
   A -->|Redis protocol| V[(Valkey 8)]
-  A -->|HTTPS model request| G[Gemini API]
+  A -->|HTTPS chat completions| G[Groq API]
   P --- D[(pgdata volume)]
 ~~~
 
@@ -105,5 +105,5 @@ Flyway V1 creates the four tables. Child foreign keys cascade on student deletio
 - Spring Cache uses Valkey with ten-minute TTL; mark/exam writes evict the relevant analytics key.
 - Actuator exposes health only and enables probes.
 - Frontend reads `VITE_API_BASE_URL`; development defaults to `http://localhost:8080/api`, while production defaults to same-origin `/api`. A separately hosted Vercel frontend must set the Render API URL at build time.
-- Compose passes Gemini model, API key, and optional base URL to the active Gemini ChatModel configuration. Alternative provider variables are not used by that bean.
+- Compose passes the Groq model, API key, and optional base URL to the active OpenAI-compatible ChatModel configuration. Alternative provider variables are not used by that bean.
 - CORS origin patterns are configurable with `CORS_ALLOWED_ORIGINS`; defaults allow local development and `https://*.vercel.app`. The API allows GET, POST, DELETE, and OPTIONS. CORS does not authenticate users.

@@ -35,9 +35,9 @@ Target duration: 7–10 minutes. Keep most slides to 30–45 seconds and spend e
 ## 6. Technology stack
 - React, Vite, JavaScript, Tailwind, Axios, Recharts, Lucide.
 - Java 21, Spring Boot, JPA, Flyway, PostgreSQL, Valkey.
-- LangChain4j, LangGraph4j, Gemini, Docker, Nginx.
+- LangChain4j, LangGraph4j, Groq, Docker, Nginx.
 - **Suggested visual:** Layered stack diagram.
-- **Speaker notes:** Gemini is the active model bean; other provider libraries are declared but not wired into it.
+- **Speaker notes:** Groq is the active model through LangChain4j's OpenAI-compatible chat client.
 
 ## 7. Frontend modules
 - Dashboard, marks, analytics, exams, AI Mentor, courses, quizzes, settings.
@@ -54,9 +54,9 @@ Target duration: 7–10 minutes. Keep most slides to 30–45 seconds and spend e
 
 ## 9. AI Mentor architecture
 - Analyze node computes student analytics.
-- Answer node asks Gemini using question and context.
+- Plan node asks Groq using question and context.
 - Critique node can accept or request a bounded revision.
-- **Suggested visual:** Analyze → Answer → Critique → optional revision.
+- **Suggested visual:** Analyze → Plan → Critique → optional revision → final answer.
 - **Speaker notes:** There is no RAG, vector database, or streaming. A critique pass does not guarantee factual correctness.
 
 ## 10. Demo workflow

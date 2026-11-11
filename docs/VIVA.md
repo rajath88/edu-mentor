@@ -24,7 +24,7 @@
 14. **How is dependency injection used?** Controllers and services receive dependencies through constructors.
 15. **What is a REST API?** HTTP resource operations using methods, paths, and representations such as JSON.
 16. **How are requests validated?** Jakarta constraints on request records are activated with @Valid.
-17. **How are errors handled?** IllegalArgumentException maps to 404; mentor runtime failures return generic 502; validation errors use Spring handling.
+17. **How are errors handled?** IllegalArgumentException maps to 404; provider failures return safe, friendly 502 messages; validation errors use Spring handling.
 18. **Which API routes exist?** Student create; mark create/list; exam create/list/delete; analytics read; mentor ask/history, all under /api.
 19. **Can the UI add marks?** Yes. The Marks screen posts the subject, topic, score, maximum score, and optional date to the API, then reloads records and analytics.
 
@@ -49,14 +49,14 @@
 
 ## AI workflow
 
-33. **What does LangChain4j do?** It provides the Java integration used to call the Gemini ChatModel.
-34. **What does LangGraph4j do?** It orchestrates analyze, answer, and critique nodes with a conditional revision edge.
+33. **What does LangChain4j do?** It provides the Java integration used to call Groq through its OpenAI-compatible ChatModel.
+34. **What does LangGraph4j do?** It orchestrates analyze, plan, and critique nodes with a conditional revision edge, then returns the final plan response.
 35. **What context is sent to the model?** The student's question, serialized analytics, and critique feedback on a retry.
 36. **What does the critique step do?** It asks the model to approve or suggest a revision; retries are bounded.
 37. **Does the project use RAG or a vector database?** No retrieval pipeline or vector database was found in the implementation.
 38. **Does the mentor stream responses?** No. The API returns a completed response.
-39. **Which model is active?** Gemini via LangChain4j. The server reads `LLM_MODEL` (default `gemini-3.5-flash-lite`), `LLM_API_KEY`, and optional `LLM_BASE_URL` from environment configuration.
-40. **What if the model call fails?** The server logs the error and returns a generic 502 response.
+39. **Which model is active?** Groq via LangChain4j's OpenAI-compatible client. The server reads `LLM_MODEL` (default `openai/gpt-oss-120b`), `LLM_API_KEY`, and optional `LLM_BASE_URL` from environment configuration.
+40. **What if the model call fails?** The server logs sanitized provider diagnostics and returns a friendly 502 message for rate limits, quota exhaustion, timeouts, or server errors.
 
 ## Docker, deployment, and security
 

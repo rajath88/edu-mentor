@@ -190,20 +190,27 @@ public class MentorAgent {
                     .orElse("The mentor could not produce an answer.");
 
         } catch (Exception failure) {
-            HttpException httpFailure = GeminiErrorDetails.findHttpException(failure);
+            HttpException httpFailure = GroqErrorDetails.findHttpException(failure);
             if (httpFailure != null) {
-                String body = GeminiErrorDetails.sanitize(httpFailure.getMessage(), apiKey);
-                log.error("Gemini API request failed: HTTP {} responseBody={}",
+                String body = GroqErrorDetails.sanitize(httpFailure.getMessage(), apiKey);
+                log.error("Groq API request failed: HTTP {} responseBody={}",
                         httpFailure.statusCode(), body);
                 throw new MentorRequestException(
-                        GeminiErrorDetails.clientMessage(httpFailure.statusCode())
+                        GroqErrorDetails.clientMessage(httpFailure.statusCode(), httpFailure.getMessage())
                 );
             }
 
-            Throwable rootCause = GeminiErrorDetails.rootCause(failure);
+            Throwable rootCause = GroqErrorDetails.rootCause(failure);
+            String safeCauseMessage = GroqErrorDetails.sanitize(rootCause.getMessage(), apiKey);
+            if (GroqErrorDetails.isTimeout(failure)) {
+                log.warn("Groq API request timed out: causeType={} causeMessage={}",
+                        rootCause.getClass().getName(), safeCauseMessage);
+                throw new MentorRequestException(GroqErrorDetails.timeoutClientMessage());
+            }
+
             log.error("AI Mentor workflow failed: causeType={} causeMessage={}",
                     rootCause.getClass().getName(),
-                    GeminiErrorDetails.sanitize(rootCause.getMessage(), apiKey));
+                    safeCauseMessage);
             throw new MentorRequestException("AI Mentor is temporarily unavailable. Please try again.");
         }
     }

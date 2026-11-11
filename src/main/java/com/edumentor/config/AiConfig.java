@@ -12,8 +12,7 @@ import java.time.Duration;
 @Configuration
 public class AiConfig {
 
-    private static final String GEMINI_OPENAI_BASE_URL =
-            "https://generativelanguage.googleapis.com/v1beta/openai/";
+    private static final String GROQ_OPENAI_BASE_URL = "https://api.groq.com/openai/v1/";
 
     @Bean
     ChatModel chatModel(
@@ -23,12 +22,12 @@ public class AiConfig {
     ) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException(
-                    "LLM_API_KEY must be configured to enable the Gemini AI Mentor."
+                    "LLM_API_KEY must be configured to enable the Groq AI Mentor."
             );
         }
 
         String effectiveBaseUrl = baseUrl == null || baseUrl.isBlank()
-                ? GEMINI_OPENAI_BASE_URL
+                ? GROQ_OPENAI_BASE_URL
                 : baseUrl;
 
         return OpenAiChatModel.builder()

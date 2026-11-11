@@ -22,11 +22,11 @@ Student scores, exam dates, and study help are often handled separately. EduMent
 | Styling and UI | Tailwind CSS 4.3.4 with Vite plugin, custom CSS, Lucide React 1.67.0 |
 | Charts and HTTP | Recharts 3.10.1, Axios ^1.21.0 |
 | Backend | Java 21, Spring Boot 3.4.5, Spring MVC, Spring Data JPA, Jakarta Validation, Spring Cache, Actuator |
-| AI orchestration | LangChain4j 1.3.0, LangGraph4j 1.6.2; active chat model is Gemini |
+| AI orchestration | LangChain4j 1.3.0, LangGraph4j 1.6.2; active chat model is Groq through its OpenAI-compatible API |
 | Persistence/cache | PostgreSQL (Compose image 16-alpine), Flyway, Valkey 8, HikariCP |
 | Packaging/serving | Maven, Docker, Docker Compose, Nginx 1.27-alpine |
 
-The frontend uses React hooks and localStorage rather than a dedicated state-management library. The POM declares Ollama, Gemini, and OpenAI-compatible LangChain4j integrations; the active AiConfig bean constructs Gemini directly. HikariCP is configured with maximum pool size 5 and minimum idle 0.
+The frontend uses React hooks and localStorage rather than a dedicated state-management library. The POM declares Ollama and OpenAI-compatible LangChain4j integrations; the active AiConfig bean configures Groq through `OpenAiChatModel`. HikariCP is configured with maximum pool size 5 and minimum idle 0.
 
 ## Architecture
 
@@ -37,7 +37,7 @@ flowchart LR
   A --> S[Services and LangGraph4j Mentor]
   S --> P[(PostgreSQL)]
   S --> V[(Valkey cache and rate counters)]
-  S --> L[Gemini ChatModel through LangChain4j]
+  S --> L[Groq ChatModel through LangChain4j OpenAI-compatible client]
 ~~~
 
 ### Frontend
@@ -50,11 +50,11 @@ Vite mounts the React application from frontend/src. App.jsx implements dashboar
 - MarkService creates students, marks, and exams and invalidates analytics after mark/exam writes.
 - AnalyticsService calculates subject summaries and uses Spring Cache.
 - MentorAgent and MentorState define the graph workflow and its state.
-- AiConfig provides the active Gemini ChatModel bean.
+- AiConfig provides the active Groq ChatModel bean through LangChain4j's OpenAI-compatible client.
 - Repos and domain classes define Spring Data repositories and JPA entities.
 - RateLimitFilter applies a per-IP fixed-window limit to mentor routes using Valkey.
 
-Dependencies are injected through constructors. IllegalArgumentException maps to HTTP 404. Mentor runtime failures are logged server-side and returned as a generic 502. Spring handles validation errors; the application does not define one custom error envelope for all errors.
+Dependencies are injected through constructors. IllegalArgumentException maps to HTTP 404. Mentor provider failures are logged server-side with credential sanitization and returned as friendly 502 messages without stack traces. Spring handles validation errors; the application does not define one custom error envelope for all errors.
 
 ### AI Mentor workflow
 
@@ -65,7 +65,7 @@ Dependencies are injected through constructors. IllegalArgumentException maps to
 5. The critique node asks the model whether the answer is relevant and clear. A conditional edge can request a bounded revision.
 6. The controller stores the question and final response in mentor_messages.
 
-AiConfig reads the server-side `LLM_API_KEY`, `LLM_MODEL` (default `gemini-3.5-flash-lite`), and optional `LLM_BASE_URL`. A missing API key prevents backend startup with a clear configuration error. Temperature is 0.4 and timeout is 60 seconds. No RAG, vector database, streaming, or tool-calling implementation was found.
+AiConfig reads the server-side `LLM_API_KEY`, `LLM_MODEL` (default `openai/gpt-oss-120b`), and optional `LLM_BASE_URL` (default `https://api.groq.com/openai/v1/`). A missing API key prevents backend startup with a clear configuration error. Temperature is 0.4 and timeout is 180 seconds. No RAG, vector database, streaming, or tool-calling implementation was found.
 
 ### Database design
 
@@ -93,7 +93,7 @@ All routes use the /api prefix. Bodies are JSON.
 | GET /students/{id}/exams | Returns exams ordered by date |
 | DELETE /students/{id}/exams/{examId} | Deletes an exam owned by the specified student (204) |
 | GET /students/{id}/analytics | Returns student ID and subject summaries |
-| POST /mentor/{id}/ask | question required; returns answer or generic 502 on model failure |
+| POST /mentor/{id}/ask | question required; returns answer or a friendly 502 on provider failure |
 | GET /mentor/{id}/history | Returns up to ten recent messages, newest first |
 
 There is no mark update/delete endpoint. Exam deletion verifies that the exam belongs to the specified student. Mark scores are not constrained to be less than or equal to maxScore. CORS permits local development origins and `https://*.vercel.app` by default, including Vercel preview domains. Set `CORS_ALLOWED_ORIGINS` on the backend to comma-separated origin patterns if the production frontend uses a custom domain. CORS explicitly permits the API's GET, POST, DELETE, and OPTIONS methods.
@@ -112,13 +112,13 @@ Use frontend/package-lock.json; the root package-lock.json is only a small place
 
 ## Docker Compose
 
-Copy `.env.example` to `.env`, replace the sample database password, and set `LLM_API_KEY` for Gemini requests. Then run `docker compose up --build` and open `http://localhost`. Compose starts Nginx, the Java app, PostgreSQL, and Valkey. PostgreSQL uses a named `pgdata` volume. The backend is mapped to `127.0.0.1:8080`; Nginx proxies `/api` to the app on its internal port 8080. Render's injected `PORT` takes precedence over the Compose/local server port settings.
+Copy `.env.example` to `.env`, replace the sample database password, and set `LLM_API_KEY` to a Groq API key. Then run `docker compose up --build` and open `http://localhost`. Compose starts Nginx, the Java app, PostgreSQL, and Valkey. PostgreSQL uses a named `pgdata` volume. The backend is mapped to `127.0.0.1:8080`; Nginx proxies `/api` to the app on its internal port 8080. Render's injected `PORT` takes precedence over the Compose/local server port settings.
 
 Nginx serves the checked-in nginx/html directory. The Dockerfile builds only the backend JAR and does not build/copy frontend assets, so source frontend changes are not reflected in the mounted static site unless assets are refreshed separately.
 
 ## Environment and deployment notes
 
-`DB_URL`, `DB_USER`, and `DB_PASSWORD` configure PostgreSQL; `VALKEY_HOST` and `VALKEY_PORT` configure Valkey; `LLM_API_KEY`, `LLM_MODEL`, and optional `LLM_BASE_URL` configure the server-side Gemini integration. `PORT` (highest priority) or `SERVER_PORT` configures Spring's port. `CORS_ALLOWED_ORIGINS` optionally overrides the comma-separated default patterns. `VITE_API_BASE_URL` is a frontend build-time variable and must contain only the public API URL, never credentials. Flyway runs the packaged SQL migrations on startup; Hibernate validates the mapped schema.
+`DB_URL`, `DB_USER`, and `DB_PASSWORD` configure PostgreSQL; `VALKEY_HOST` and `VALKEY_PORT` configure Valkey; `LLM_API_KEY`, `LLM_MODEL`, and optional `LLM_BASE_URL` configure the server-side Groq integration. The Groq defaults are `openai/gpt-oss-120b` and `https://api.groq.com/openai/v1/`. `PORT` (highest priority) or `SERVER_PORT` configures Spring's port. `CORS_ALLOWED_ORIGINS` optionally overrides the comma-separated default patterns. `VITE_API_BASE_URL` is a frontend build-time variable and must contain only the public API URL, never credentials. Flyway runs the packaged SQL migrations on startup; Hibernate validates the mapped schema.
 
 ### Vercel frontend
 
@@ -126,9 +126,9 @@ No Vercel project manifest is checked in. Configure the Vercel project with Root
 
 ### Render backend
 
-No Render Blueprint is checked in. Create a Docker web service from the repository root so Render uses the root `Dockerfile`; the image uses Java 21 and listens on `0.0.0.0` at the injected `PORT` (the application falls back to `SERVER_PORT`, then 8080). Configure `DB_URL` as a JDBC PostgreSQL URL, plus `DB_USER`, `DB_PASSWORD`, `VALKEY_HOST`, and `VALKEY_PORT` for production services. Configure `LLM_API_KEY` as a Render secret and optionally set `LLM_MODEL` and `LLM_BASE_URL`. For a custom Vercel domain, set `CORS_ALLOWED_ORIGINS` to the exact frontend origin (scheme and host, no path); the default supports `https://*.vercel.app`. Do not put any secret in Vercel variables or frontend files. Actuator health is available at `/actuator/health` and can be used as Render's health check path.
+No Render Blueprint is checked in. Create a Docker web service from the repository root so Render uses the root `Dockerfile`; the image uses Java 21 and listens on `0.0.0.0` at the injected `PORT` (the application falls back to `SERVER_PORT`, then 8080). Configure `DB_URL` as a JDBC PostgreSQL URL, plus `DB_USER`, `DB_PASSWORD`, `VALKEY_HOST`, and `VALKEY_PORT` for production services. Configure `LLM_API_KEY` as a Render secret; optionally set `LLM_MODEL` (default `openai/gpt-oss-120b`) and `LLM_BASE_URL` (default `https://api.groq.com/openai/v1/`). For a custom Vercel domain, set `CORS_ALLOWED_ORIGINS` to the exact frontend origin (scheme and host, no path); the default supports `https://*.vercel.app`. Do not put any secret in Vercel variables or frontend files. Actuator health is available at `/actuator/health` and can be used as Render's health check path.
 
-The application requires PostgreSQL and a Gemini API key to start. Flyway is enabled and applies migrations packaged under `src/main/resources/db/migration`; JPA uses `ddl-auto: validate`. Render Postgres and Valkey resources must be provisioned and their private connection values entered in the backend environment. Neither cloud provider configuration nor a deployed service was available for this repository audit, so cloud settings and live endpoints are not verified.
+The application requires PostgreSQL and a Groq API key to start. Flyway is enabled and applies migrations packaged under `src/main/resources/db/migration`; JPA uses `ddl-auto: validate`. Render Postgres and Valkey resources must be provisioned and their private connection values entered in the backend environment. Neither cloud provider configuration nor a deployed service was available for this repository audit, so cloud settings and live endpoints are not verified.
 
 Compose remains the reproducible local topology. Nginx serves the checked-in `nginx/html` directory and proxies `/api` and `/actuator/health`; it does not build the frontend. Refresh those static assets from `frontend/dist` when updating a local Compose UI. For Vercel, deploy the frontend separately and point it to the Render backend as described above.
 
