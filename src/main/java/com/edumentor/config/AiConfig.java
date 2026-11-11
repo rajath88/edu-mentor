@@ -36,7 +36,7 @@ public class AiConfig {
                 .baseUrl(effectiveBaseUrl)
                 .modelName(modelName)
                 .temperature(0.4)
-                .timeout(Duration.ofSeconds(60))
+                .timeout(Duration.ofSeconds(180))
                 .build();
     }
 }
