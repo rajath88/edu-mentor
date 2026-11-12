@@ -1,153 +1,330 @@
 # EduMentor
 
-EduMentor is a student learning dashboard backed by a Spring Boot REST API. It stores student profiles, marks, exams, and mentor conversations; computes subject-level summaries; and provides an AI mentor that receives academic context.
+**A full-stack learning dashboard for academic records, performance analytics,
+exam planning, and AI-assisted study.** EduMentor combines a React single-page
+application with a Spring Boot API, PostgreSQL persistence, Valkey-backed
+analytics caching, and a Groq-powered mentor workflow.
 
-## Problem and objectives
+[Live frontend](https://edu-mentor-two.vercel.app) ·
+[Backend](https://edu-mentor-1.onrender.com) ·
+[Source repository](https://github.com/rajath88/edu-mentor)
 
-Student scores, exam dates, and study help are often handled separately. EduMentor brings student records and simple performance summaries into one interface and demonstrates a full-stack application using a React SPA, Java REST API, relational database, cache, and graph-based LLM orchestration.
+[![EduMentor CI](https://github.com/rajath88/edu-mentor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/rajath88/edu-mentor/actions/workflows/ci.yml)
 
-## Feature status
+## What it does
 
-**Implemented:** create student profiles; create and list marks through the API; create exams through the API; compute per-subject average, trend, weakest topic, and days until next exam; ask the AI Mentor and retrieve stored conversation history through the API; PostgreSQL persistence; Flyway migration; Valkey-backed analytics cache and best-effort mentor rate limiting.
+- **Academic dashboard:** displays the registered student's recorded marks,
+  averages, subject analytics, and upcoming exams from the backend.
+- **Marks and exams:** create marks and exams, view saved records, and delete
+  exams through the REST API. Records are stored in PostgreSQL.
+- **Performance analytics:** calculates overall and subject averages, score
+  trends, weakest topics, and upcoming exam dates. Analytics are cached in
+  Valkey and invalidated when marks or exams change.
+- **AI Study Mentor:** sends a student's question and current academic analytics
+  through a LangGraph4j workflow. The answer is reviewed and can be revised
+  before being returned. Recent saved messages are displayed in the UI.
+- **Markdown answers:** renders mentor responses with headings, lists, tables,
+  and code blocks while leaving raw HTML disabled.
+- **Courses and quizzes:** offers four topic-based courses and Java/Data
+  Structures quizzes. Completed topics and quiz attempts are saved in browser
+  `localStorage`; they are not backend records and do not sync between devices.
 
-**Implemented:** marks can be entered from the frontend and are saved through the API. Exams can be created, listed, and deleted through the API; the schedule is loaded from PostgreSQL. Mentor history exists as an endpoint but the UI does not load it. Student ID/name in localStorage are not authentication.
+### Feature and persistence status
 
-**Demo-only:** course catalog/progress, quizzes, weekly study hours, and learning streak shown in the UI are hard-coded sample content, not persisted backend features.
-
-## Technology stack
-
-| Area | Verified versions and use |
-|---|---|
-| Frontend | React and React DOM 19.3.1, Vite 8.3.5, JavaScript ES modules |
-| Styling and UI | Tailwind CSS 4.3.4 with Vite plugin, custom CSS, Lucide React 1.67.0 |
-| Charts and HTTP | Recharts 3.10.1, Axios ^1.21.0 |
-| Backend | Java 21, Spring Boot 3.4.5, Spring MVC, Spring Data JPA, Jakarta Validation, Spring Cache, Actuator |
-| AI orchestration | LangChain4j 1.3.0, LangGraph4j 1.6.2; active chat model is Groq through its OpenAI-compatible API |
-| Persistence/cache | PostgreSQL (Compose image 16-alpine), Flyway, Valkey 8, HikariCP |
-| Packaging/serving | Maven, Docker, Docker Compose, Nginx 1.27-alpine |
-
-The frontend uses React hooks and localStorage rather than a dedicated state-management library. The POM declares Ollama and OpenAI-compatible LangChain4j integrations; the active AiConfig bean configures Groq through `OpenAiChatModel`. HikariCP is configured with maximum pool size 5 and minimum idle 0.
-
-## Architecture
-
-~~~mermaid
-flowchart LR
-  U[Student browser: React SPA] --> N[Nginx static server and proxy]
-  N -->|/api and health| A[Spring Boot REST API]
-  A --> S[Services and LangGraph4j Mentor]
-  S --> P[(PostgreSQL)]
-  S --> V[(Valkey cache and rate counters)]
-  S --> L[Groq ChatModel through LangChain4j OpenAI-compatible client]
-~~~
-
-### Frontend
-
-Vite mounts the React application from frontend/src. App.jsx implements dashboard, courses, marks, exams, mentor, quizzes, analytics, and settings views. Axios reads `VITE_API_BASE_URL`; local development falls back to `http://localhost:8080/api`, while production defaults to same-origin `/api` (suitable behind the included Nginx proxy). A separate Vercel frontend must set `VITE_API_BASE_URL` to the Render API URL ending in `/api`. Tailwind utilities and custom CSS style the interface; Recharts provides graphs and Lucide React provides icons. Student display identity uses localStorage; marks and exams load from the API.
-
-### Backend
-
-- ApiController maps /api routes, validates request records, and delegates to services.
-- MarkService creates students, marks, and exams and invalidates analytics after mark/exam writes.
-- AnalyticsService calculates subject summaries and uses Spring Cache.
-- MentorAgent and MentorState define the graph workflow and its state.
-- AiConfig provides the active Groq ChatModel bean through LangChain4j's OpenAI-compatible client.
-- Repos and domain classes define Spring Data repositories and JPA entities.
-- RateLimitFilter applies a per-IP fixed-window limit to mentor routes using Valkey.
-
-Dependencies are injected through constructors. IllegalArgumentException maps to HTTP 404. Mentor provider failures are logged server-side with credential sanitization and returned as friendly 502 messages without stack traces. Spring handles validation errors; the application does not define one custom error envelope for all errors.
-
-### AI Mentor workflow
-
-1. The controller validates the question and parses the student ID.
-2. RateLimitFilter checks a per-IP Valkey counter; the limiter continues best-effort if Valkey has a data-access failure.
-3. The graph analyze node computes student analytics and serializes them into graph state.
-4. The plan node sends the question, analytics, and any critique feedback to the ChatModel.
-5. The critique node asks the model whether the answer is relevant and clear. A conditional edge can request a bounded revision.
-6. The controller stores the question and final response in mentor_messages.
-
-AiConfig reads the server-side `LLM_API_KEY`, `LLM_MODEL` (default `openai/gpt-oss-120b`), and optional `LLM_BASE_URL` (default `https://api.groq.com/openai/v1/`). A missing API key prevents backend startup with a clear configuration error. Temperature is 0.4 and timeout is 180 seconds. No RAG, vector database, streaming, or tool-calling implementation was found.
-
-### Database design
-
-Flyway migration V1__init.sql creates:
-
-| Table | Purpose |
-|---|---|
-| students | ID, name, unique optional email |
-| marks | Student-linked subject/topic score, maximum score, and date |
-| exams | Student-linked subject and exam date |
-| mentor_messages | Student-linked role, content, and creation timestamp |
-
-Foreign keys from marks, exams, and mentor_messages cascade on student deletion. An index covers marks(student_id, taken_on). JPA is configured with ddl-auto: validate, leaving schema changes to Flyway.
-
-## API reference
-
-All routes use the /api prefix. Bodies are JSON.
-
-| Method and route | Request and behavior |
-|---|---|
-| POST /students | name required, email optional; returns created student (201) |
-| POST /students/{id}/marks | subject, topic, score >= 0, maxScore > 0, optional takenOn; returns mark (201) |
-| GET /students/{id}/marks | Returns marks ordered by date ascending |
-| POST /students/{id}/exams | subject and examDate required; returns exam (201) |
-| GET /students/{id}/exams | Returns exams ordered by date |
-| DELETE /students/{id}/exams/{examId} | Deletes an exam owned by the specified student (204) |
-| GET /students/{id}/analytics | Returns student ID and subject summaries |
-| POST /mentor/{id}/ask | question required; returns answer or a friendly 502 on provider failure |
-| GET /mentor/{id}/history | Returns up to ten recent messages, newest first |
-
-There is no mark update/delete endpoint. Exam deletion verifies that the exam belongs to the specified student. Mark scores are not constrained to be less than or equal to maxScore. CORS permits local development origins and `https://*.vercel.app` by default, including Vercel preview domains. Set `CORS_ALLOWED_ORIGINS` on the backend to comma-separated origin patterns if the production frontend uses a custom domain. CORS explicitly permits the API's GET, POST, DELETE, and OPTIONS methods.
-
-## Local setup
-
-Requirements: Java 21, Maven, Node.js/npm, PostgreSQL, and Valkey.
-
-1. Start PostgreSQL and Valkey locally, or use Docker Compose.
-2. Configure variables from `.env.example`; keep actual credentials in the ignored `.env` file and never commit them.
-3. Run `mvn spring-boot:run` from the repository root. Spring resolves the port as `PORT`, then `SERVER_PORT`, then `8080`.
-4. In `frontend`, run `npm ci` and `npm run dev`. The development API default is `http://localhost:8080/api` and can be overridden with `VITE_API_BASE_URL`.
-5. Run `npm run build` in `frontend` to create `frontend/dist`.
-
-Use frontend/package-lock.json; the root package-lock.json is only a small placeholder.
-
-## Docker Compose
-
-Copy `.env.example` to `.env`, replace the sample database password, and set `LLM_API_KEY` to a Groq API key. Then run `docker compose up --build` and open `http://localhost`. Compose starts Nginx, the Java app, PostgreSQL, and Valkey. PostgreSQL uses a named `pgdata` volume. The backend is mapped to `127.0.0.1:8080`; Nginx proxies `/api` to the app on its internal port 8080. Render's injected `PORT` takes precedence over the Compose/local server port settings.
-
-Nginx serves the checked-in nginx/html directory. The Dockerfile builds only the backend JAR and does not build/copy frontend assets, so source frontend changes are not reflected in the mounted static site unless assets are refreshed separately.
-
-## Environment and deployment notes
-
-`DB_URL`, `DB_USER`, and `DB_PASSWORD` configure PostgreSQL; `VALKEY_HOST` and `VALKEY_PORT` configure Valkey; `LLM_API_KEY`, `LLM_MODEL`, and optional `LLM_BASE_URL` configure the server-side Groq integration. The Groq defaults are `openai/gpt-oss-120b` and `https://api.groq.com/openai/v1/`. `PORT` (highest priority) or `SERVER_PORT` configures Spring's port. `CORS_ALLOWED_ORIGINS` optionally overrides the comma-separated default patterns. `VITE_API_BASE_URL` is a frontend build-time variable and must contain only the public API URL, never credentials. Flyway runs the packaged SQL migrations on startup; Hibernate validates the mapped schema.
-
-### Vercel frontend
-
-No Vercel project manifest is checked in. Configure the Vercel project with Root Directory `frontend`, framework preset Vite, install command `npm ci`, build command `npm run build`, and output directory `dist`. Set `VITE_API_BASE_URL=https://<your-render-service>.onrender.com/api` in the Vercel project for the Production environment (and Preview if previews should call the backend). The actual service URL is account-specific and must be taken from the Render dashboard. Redeploy after setting build-time variables.
-
-### Render backend
-
-No Render Blueprint is checked in. Create a Docker web service from the repository root so Render uses the root `Dockerfile`; the image uses Java 21 and listens on `0.0.0.0` at the injected `PORT` (the application falls back to `SERVER_PORT`, then 8080). Configure `DB_URL` as a JDBC PostgreSQL URL, plus `DB_USER`, `DB_PASSWORD`, `VALKEY_HOST`, and `VALKEY_PORT` for production services. Configure `LLM_API_KEY` as a Render secret; optionally set `LLM_MODEL` (default `openai/gpt-oss-120b`) and `LLM_BASE_URL` (default `https://api.groq.com/openai/v1/`). For a custom Vercel domain, set `CORS_ALLOWED_ORIGINS` to the exact frontend origin (scheme and host, no path); the default supports `https://*.vercel.app`. Do not put any secret in Vercel variables or frontend files. Actuator health is available at `/actuator/health` and can be used as Render's health check path.
-
-The application requires PostgreSQL and a Groq API key to start. Flyway is enabled and applies migrations packaged under `src/main/resources/db/migration`; JPA uses `ddl-auto: validate`. Render Postgres and Valkey resources must be provisioned and their private connection values entered in the backend environment. Neither cloud provider configuration nor a deployed service was available for this repository audit, so cloud settings and live endpoints are not verified.
-
-Compose remains the reproducible local topology. Nginx serves the checked-in `nginx/html` directory and proxies `/api` and `/actuator/health`; it does not build the frontend. Refresh those static assets from `frontend/dist` when updating a local Compose UI. For Vercel, deploy the frontend separately and point it to the Render backend as described above.
-
-## Security considerations
-
-- Authentication and authorization are not implemented; a student ID is not an access credential.
-- CORS is not access control.
-- Keep database and LLM secrets out of source and browser code; replace the Compose development password before shared deployment.
-- Rate limiting is best-effort and uses X-Real-IP when present; configure trusted proxies carefully.
-- LLM answers may be inaccurate and should not be treated as authoritative.
-
-## Limitations and future work
-
-Current limitations include demo-only course/quiz/study-hour/streak sections, no authentication, no mentor history UI, and no checked-in Vercel/Render deployment manifests or visible CI workflow. Recommended improvements are secure identity and authorization, mark update/delete, data-backed course and quiz features, automated CI, and a reproducible frontend build/deployment pipeline.
+| Feature                             | Status                  | Data source                                                             |
+| ----------------------------------- | ----------------------- | ----------------------------------------------------------------------- |
+| Student profile creation            | Implemented             | PostgreSQL; current browser keeps the student ID/name in `localStorage` |
+| Marks create/list                   | Implemented             | PostgreSQL REST API                                                     |
+| Exam create/list/delete             | Implemented             | PostgreSQL REST API                                                     |
+| Dashboard and analytics             | Implemented             | Backend analytics and academic-record APIs                              |
+| AI Mentor and recent history        | Implemented             | Groq API for answers; PostgreSQL for saved messages                     |
+| Course topics and progress          | Implemented in frontend | Static course content; progress in browser `localStorage`               |
+| Java and Data Structures quizzes    | Implemented in frontend | Static questions; scores/history in browser `localStorage`              |
+| Authentication and account recovery | Not implemented         | —                                                                       |
+| Marks update/delete                 | Not implemented         | No corresponding API endpoints                                          |
 
 ## Screenshots
 
-No screenshots are included in the inspected repository. Add genuine captures under docs/images and link them here.
+No application screenshots are currently checked into the repository. Replace
+these placeholders with genuine captures when available.
+
+| Dashboard                                             | Courses and progress                                |
+| ----------------------------------------------------- | --------------------------------------------------- |
+| _Screenshot placeholder: `docs/images/dashboard.png`_ | _Screenshot placeholder: `docs/images/courses.png`_ |
+
+| Marks and analytics                                   | AI Mentor                                          |
+| ----------------------------------------------------- | -------------------------------------------------- |
+| _Screenshot placeholder: `docs/images/analytics.png`_ | _Screenshot placeholder: `docs/images/mentor.png`_ |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Browser[Student browser<br/>React and Vite SPA]
+    Vercel[Vercel<br/>static frontend and /api rewrite]
+    Nginx[Nginx<br/>Compose static server and API proxy]
+    API[Spring Boot REST API]
+    Services[MarkService and AnalyticsService]
+    Mentor[MentorAgent<br/>LangGraph4j workflow]
+    DB[(PostgreSQL<br/>students, marks, exams, mentor_messages)]
+    Cache[(Valkey<br/>analytics cache and rate counters)]
+    Groq[Groq chat completions<br/>OpenAI-compatible API]
+
+    Browser --> Vercel
+    Vercel -->|/api/* rewrite| API
+    Browser -. local Compose deployment .-> Nginx
+    Nginx -->|/api/*| API
+    API --> Services
+    Services --> DB
+    Services --> Cache
+    API --> Mentor
+    Mentor --> Services
+    Mentor --> Groq
+    API --> DB
+```
+
+The diagram shows the configured routes and integrations. The Vercel rewrite
+points to the supplied Render backend URL. The Compose topology uses Nginx and
+the Spring Boot service; PostgreSQL and Valkey are configured dependencies. The
+repository does not include a Render Blueprint or provision cloud database/cache
+resources.
+
+### Request and data flow
+
+1. The React UI sends JSON requests through Axios to `/api`. In development it
+   defaults to `http://localhost:8080/api`; in production, Vercel's rewrite
+   forwards `/api/*` to Render.
+2. `ApiController` validates request records and delegates mark, exam, and
+   analytics operations to services and Spring Data repositories.
+3. PostgreSQL stores student profiles, marks, exams, and successful mentor
+   exchanges. Flyway applies the checked-in SQL migration; Hibernate validates
+   the resulting schema.
+4. `AnalyticsService` computes per-subject summaries and caches them in Valkey
+   for ten minutes. Mark and exam writes evict the student's cached analytics.
+5. For mentor questions, the API applies a Valkey-backed best-effort per-IP rate
+   limit, loads analytics, and invokes the graph. The graph asks the configured
+   Groq model for an answer, critiques it, and may make up to two revision
+   passes. The controller stores the question/answer pair and returns the answer
+   as JSON.
+
+The mentor history endpoint returns up to ten messages, newest first. The UI
+displays history, but previous messages are not included as conversational
+context in the model prompt.
+
+## Technology stack
+
+| Area                                 | Technologies                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Frontend                             | React 19, JavaScript, Vite 8, Axios                                                               |
+| UI and charts                        | Tailwind CSS 4, Lucide React, Recharts, ReactMarkdown, remark-gfm                                 |
+| Backend                              | Java 21, Spring Boot 3.4, Spring MVC, Spring Data JPA, Jakarta Validation, Spring Cache, Actuator |
+| Database and migrations              | PostgreSQL, Hibernate/JPA, Flyway                                                                 |
+| Caching and rate limiting            | Valkey with Spring Data Redis and Spring Cache                                                    |
+| AI                                   | Groq via the OpenAI-compatible API, LangChain4j 1.3, LangGraph4j 1.6                              |
+| Local packaging and proxy            | Docker, Docker Compose, Nginx                                                                     |
+| Frontend hosting and backend hosting | Vercel and Render                                                                                 |
+| CI                                   | GitHub Actions; Node.js 22 frontend job and Java 21/Maven backend job                             |
+
+The POM also contains a LangChain4j Ollama adapter, but the active `AiConfig`
+bean uses `OpenAiChatModel` configured for Groq. Ollama is not the active AI
+provider.
+
+## API reference
+
+All application API routes are under `/api`. Request and response bodies use
+JSON unless noted. `{id}` is a student ID.
+
+| Method and route                           | Purpose and request                                                                                                                                                                       |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/students`                       | Create a profile. Body: `{"name":"Taylor Student","email":"taylor@example.test"}`; email is optional. Returns `201`.                                                                      |
+| `POST /api/students/{id}/marks`            | Add a mark. Body: `{"subject":"Mathematics","topic":"Algebra","score":18,"maxScore":20,"takenOn":"2026-11-12"}`. `takenOn` is optional; returns `201`.                                    |
+| `GET /api/students/{id}/marks`             | List marks ordered by date ascending.                                                                                                                                                     |
+| `POST /api/students/{id}/exams`            | Add an exam. Body: `{"subject":"Mathematics","examDate":"2026-12-01"}`; returns `201`.                                                                                                    |
+| `GET /api/students/{id}/exams`             | List exams ordered by date ascending.                                                                                                                                                     |
+| `DELETE /api/students/{id}/exams/{examId}` | Delete an exam belonging to the specified student; returns `204`.                                                                                                                         |
+| `GET /api/students/{id}/analytics`         | Return `studentId`, `marksCount`, `averageScore`, `subjects`, and upcoming exams. Subject summaries include `average`, `trend`, `weakestTopic`, and `daysToExam`.                         |
+| `POST /api/mentor/{id}/ask`                | Ask the mentor. Body: `{"question":"Explain binary search."}`; successful responses contain `{"answer":"..."}`. Provider failures return a safe error response; rate limits return `429`. |
+| `GET /api/mentor/{id}/history`             | Return up to ten saved mentor messages, newest first.                                                                                                                                     |
+| `GET /actuator/health`                     | Spring Boot health endpoint; not under `/api`.                                                                                                                                            |
+
+Validation is applied to required names, subjects, topics, exam dates, question
+text, and numeric bounds (`score >= 0`, `maxScore > 0`). Invalid request bodies
+are rejected by Spring validation; missing students and exams map to `404`.
+The mentor endpoint returns `502` for provider/workflow failures and `429` when
+the per-IP rate limit is exceeded. A nonnumeric or `null` mentor student ID
+currently returns `200` with a friendly answer message. The API does not
+currently enforce `score <= maxScore`. There are no mark update/delete routes.
+Exam deletion checks ownership against the student ID in the route. **The API
+has no authentication or authorization**, so IDs must not be treated as access
+credentials.
+
+## Local development
+
+### Prerequisites
+
+- Git
+- Node.js 22 and npm
+- Java 21 and Maven 3.9+
+- Docker Engine and Docker Compose (recommended for PostgreSQL and Valkey)
+- A Groq API key for running the backend, including its AI Mentor bean
+
+### Run the full Compose topology
+
+Copy the sample environment file and edit `.env`. Set a non-placeholder database
+password and a real Groq key; the application intentionally fails startup when
+`LLM_API_KEY` is blank.
+
+```powershell
+Copy-Item .env.example .env
+# Edit .env and set DB_PASSWORD and LLM_API_KEY, then:
+docker compose up --build
+```
+
+Open [http://localhost](http://localhost) for the Nginx-served UI. The API is
+also published at `http://localhost:8080/api`. Compose provides PostgreSQL and
+Valkey on its internal network and persists PostgreSQL data in the `pgdata`
+volume.
+
+The Compose Nginx service mounts the checked-in `nginx/html` directory; the
+Dockerfile builds only the backend JAR and does not build or copy
+`frontend/src`. For frontend source development, use Vite instead:
+
+```powershell
+cd frontend
+npm ci
+npm run dev
+```
+
+Vite serves the source UI at `http://localhost:5173` and its development API
+default targets `http://localhost:8080/api`. Keep the Compose backend running,
+or set `VITE_API_BASE_URL` to the API URL you use. Build production frontend
+assets with `npm run build` from `frontend`; output goes to `frontend/dist`.
+
+### Run the backend outside Compose
+
+Start reachable PostgreSQL and Valkey services, configure the variables below,
+then run from the repository root:
+
+```powershell
+mvn spring-boot:run
+```
+
+The default database connection targets `localhost:5432/edumentor`; the defaults
+for the local database username/password are `edumentor`. Flyway runs at
+application startup and Hibernate validates the schema. Spring resolves its
+listen port in this order: `PORT`, `SERVER_PORT`, then `8080`.
+
+## Configuration
+
+The root `.env.example` documents the local Compose settings. Keep actual
+credentials in `.env` or a deployment secret store; `.env` is ignored by Git.
+Never place `LLM_API_KEY` in Vite variables or frontend code.
+
+| Variable                          | Used by                                | Default / behavior                                                                                                                                                            |
+| --------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                            | Spring Boot / hosting platform         | Highest port priority when supplied, including Render's injected port.                                                                                                        |
+| `SERVER_PORT`                     | Spring Boot and Compose                | Fallback port; Spring ultimately defaults to `8080`.                                                                                                                          |
+| `SERVER_ADDRESS`                  | Compose / Spring Boot binding          | Compose sets `0.0.0.0`; application configuration also defaults to that address.                                                                                              |
+| `DB_URL`                          | Spring datasource                      | `jdbc:postgresql://localhost:5432/edumentor`; Compose uses `jdbc:postgresql://postgres:5432/edumentor`.                                                                       |
+| `DB_USER`                         | Spring datasource                      | `edumentor` in the application and Compose configuration.                                                                                                                     |
+| `DB_PASSWORD`                     | Spring datasource and Compose Postgres | Required for a real deployment. Compose's `change-me` fallback is a development placeholder and must be replaced.                                                             |
+| `VALKEY_HOST`                     | Spring Data Redis                      | `localhost` for a local process; Compose sets `valkey`. Host only, without a port suffix.                                                                                     |
+| `VALKEY_PORT`                     | Spring Data Redis                      | `6379`.                                                                                                                                                                       |
+| `LLM_API_KEY`                     | Backend AI configuration               | Required for backend startup; supply as a secret. Never expose it to the browser.                                                                                             |
+| `LLM_MODEL`                       | Backend AI configuration               | `openai/gpt-oss-120b`.                                                                                                                                                        |
+| `LLM_BASE_URL`                    | Backend AI configuration               | Optional override; defaults to `https://api.groq.com/openai/v1/`.                                                                                                             |
+| `CORS_ALLOWED_ORIGINS`            | Backend CORS and rate-limit responses  | `http://localhost,http://localhost:5173,https://*.vercel.app`; comma-separated origin patterns.                                                                               |
+| `VITE_API_BASE_URL`               | Frontend build/runtime config          | Optional. Development fallback is `http://localhost:8080/api`; production fallback is `/api`, which Vercel rewrites to Render. This is a public API URL only, never a secret. |
+| `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | Compose pass-through only              | Present in Compose, but not consumed by the active Groq `AiConfig`.                                                                                                           |
+
+## Testing and CI
+
+Frontend checks (from `frontend`):
+
+```bash
+npm ci
+npm run lint
+npm test
+npm run build
+```
+
+Backend checks (from the repository root):
+
+```bash
+mvn clean test package -Dnet.bytebuddy.experimental=true
+```
+
+The frontend tests cover Markdown rendering/safety, local course-progress
+persistence, quiz scoring, and quiz-history storage. Backend tests cover service
+calculations, mark operations, Valkey host normalization, mentor error handling,
+and rate-limit behavior. The checked-in GitHub Actions workflow runs these
+frontend checks with Node.js 22 and the Maven test/package command with Java 21
+on pushes and pull requests targeting `main`. The workflow does not configure
+PostgreSQL, Valkey, or live AI credentials; the current automated tests use
+isolated/unit-level checks.
+
+## Deployment
+
+### Vercel frontend
+
+`frontend/vercel.json` contains two rewrites: `/api/:path*` goes to
+`https://edu-mentor-1.onrender.com/api/:path*`, and other paths fall back to
+`/index.html` for SPA navigation. Configure the Vercel project root as
+`frontend`, build with `npm run build`, and publish `dist`. The default
+production Axios base URL `/api` uses the checked-in API rewrite. If overriding
+`VITE_API_BASE_URL`, set only a public API URL and rebuild.
+
+### Render backend
+
+The root `Dockerfile` builds the Maven JAR using Java 21 and runs it on a Java
+21 JRE image. Configure the Render service to build from the repository root
+with this Dockerfile. Supply `LLM_API_KEY`, `DB_URL`, `DB_USER`, `DB_PASSWORD`,
+`VALKEY_HOST`, and `VALKEY_PORT` through Render's service environment/secrets.
+The app accepts Render's `PORT` without hard-coding a production port. Configure
+`CORS_ALLOWED_ORIGINS` if the frontend uses a custom domain not covered by the
+default Vercel pattern. `/actuator/health` is exposed for health checks.
+
+### Local Docker Compose
+
+Compose runs Nginx on host port `80`, publishes the backend on `127.0.0.1:8080`,
+and connects the backend to PostgreSQL and Valkey by service hostname. Nginx
+serves `nginx/html` and proxies `/api/` and `/actuator/health` to the backend.
+It does not run a frontend build; use Vercel or the Vite development server for
+the source frontend, or refresh `nginx/html` from a production build when
+maintaining the Compose static UI.
+
+## Limitations and project status
+
+- **Identity:** profile creation is not sign-in. The browser restores a saved
+  student ID/name from `localStorage`; there is no authentication,
+  authorization, or email-based account recovery. A student ID is not a security
+  boundary.
+- **Browser-local features:** course content is static, and course
+  completion/quiz attempts are kept in browser `localStorage`, not PostgreSQL.
+  They do not synchronize across devices or browsers.
+- **Academic records:** marks support create/list only. The frontend checks that
+  a mark score does not exceed the maximum, but the backend request validation
+  does not currently enforce that upper bound.
+- **Mentor context:** saved history is displayed but previous turns are not fed
+  into the next model prompt. Answers depend on the current question and
+  analytics context and may be inaccurate.
+- **Runtime dependencies:** PostgreSQL and a non-empty `LLM_API_KEY` are
+  required for backend startup. Valkey backs analytics caching and rate
+  limiting; the rate limiter is best-effort when Valkey has a data-access
+  error.
+- **Deployment scope:** Vercel rewrite and Docker/Compose configuration are
+  checked in; there is no Render Blueprint. Links above are the project's
+  published endpoints, but this README does not assert that a deployment is
+  currently healthy.
+
+## Future improvements
+
+Potential next steps (not currently implemented): secure authentication and
+student-level authorization; database-backed course content and progress;
+persistent quiz attempts and richer question sets; mark update/delete APIs;
+optional mentor conversation context; and browser-level CI coverage against
+disposable service containers.
 
 ## Author
 
-Add the author's preferred name and contact details. No author identity is inferred from repository contents.
+**EduMentor project author:** [@rajath88 on GitHub](https://github.com/rajath88)
