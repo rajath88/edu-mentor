@@ -9,6 +9,4 @@ public class MentorState extends AgentState {
     public String question()  { return this.<String>value("question").orElse(""); }
     public String analytics() { return this.<String>value("analytics").orElse(""); }
     public String plan()      { return this.<String>value("plan").orElse(""); }
-    public String critique()  { return this.<String>value("critique").orElse(""); }
-    public int iterations()   { return this.<Integer>value("iterations").orElse(0); }
 }
