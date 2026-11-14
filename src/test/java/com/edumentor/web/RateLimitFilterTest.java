@@ -1,5 +1,6 @@
 package com.edumentor.web;
 
+import com.edumentor.config.CorsConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -11,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RateLimitFilterTest {
 
     private final RateLimitFilter filter = new RateLimitFilter(
-            null, 10, "http://localhost:5173,https://*.vercel.app");
+            null, 10, new CorsConfig("http://localhost:5173,https://*.vercel.app"));
 
     @Test
     void rateLimitsOnlyMentorAskPostRequests() {

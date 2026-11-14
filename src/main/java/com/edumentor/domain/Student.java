@@ -12,4 +12,8 @@ public class Student {
     public Long getId() { return id; }
     public String getName() { return name; }
     public String getEmail() { return email; }
+    public void updateProfile(String name, String email) {
+        this.name = name;
+        this.email = email;
+    }
 }

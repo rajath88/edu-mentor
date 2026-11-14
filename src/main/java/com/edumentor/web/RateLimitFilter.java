@@ -12,10 +12,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import com.edumentor.config.CorsConfig;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.List;
 
 /** Fixed-window rate limit per client IP on the mentor endpoint, stored in Valkey. */
@@ -27,20 +27,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private final int limit;
     private final CorsConfiguration corsConfiguration;
 
-    public RateLimitFilter(
-            StringRedisTemplate redis,
-            @Value("${mentor.rate-limit-per-minute}") int limit,
-            @Value("${app.cors.allowed-origin-patterns}") String allowedOriginPatterns
-    ) {
+    public RateLimitFilter(StringRedisTemplate redis,
+                           @Value("${mentor.rate-limit-per-minute}") int limit,
+                           CorsConfig corsConfig) {
         this.redis = redis;
         this.limit = limit;
-        this.corsConfiguration = new CorsConfiguration();
-        this.corsConfiguration.setAllowedOriginPatterns(Arrays.stream(allowedOriginPatterns.split(","))
-                .map(String::trim)
-                .filter(origin -> !origin.isEmpty())
-                .toList());
-        this.corsConfiguration.setAllowedMethods(Arrays.asList("GET", "POST", "DELETE", "OPTIONS"));
-        this.corsConfiguration.setAllowedHeaders(List.of("*"));
+        this.corsConfiguration = corsConfig.corsConfiguration();
     }
 
     @Override
@@ -81,8 +73,20 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
         res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
         res.addHeader("Vary", "Origin");
-        res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+        res.setHeader("Access-Control-Allow-Methods", String.join(", ", corsConfiguration.getAllowedMethods()));
         String requestedHeaders = req.getHeader("Access-Control-Request-Headers");
-        res.setHeader("Access-Control-Allow-Headers", requestedHeaders == null ? "*" : requestedHeaders);
+        if (requestedHeaders == null || requestedHeaders.isBlank()) {
+            res.setHeader("Access-Control-Allow-Headers", String.join(", ", corsConfiguration.getAllowedHeaders()));
+            return;
+        }
+
+        List<String> requested = List.of(requestedHeaders.split(",")).stream()
+                .map(String::trim)
+                .filter(header -> !header.isEmpty())
+                .toList();
+        List<String> allowed = corsConfiguration.checkHeaders(requested);
+        if (allowed != null) {
+            res.setHeader("Access-Control-Allow-Headers", String.join(", ", requested));
+        }
     }
 }

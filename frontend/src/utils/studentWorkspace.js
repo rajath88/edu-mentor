@@ -1,3 +1,8 @@
+import { CLOUD_COURSE, CLOUD_QUIZZES } from "./cloudLearning.js";
+import { EXPANDED_COURSES } from "./expandedCatalog.js";
+
+const STUDENT_AVATAR_IDS = new Set(["luffy", "zoro", "sanji", "nami", "robin", "boa-hancock"]);
+
 export const COURSE_CATALOG = [
   {
     id: "data-structures",
@@ -47,6 +52,8 @@ export const COURSE_CATALOG = [
       { id: "network-security", title: "Network security", description: "Review network boundaries, TLS, and secure service exposure." },
     ],
   },
+  CLOUD_COURSE,
+  ...EXPANDED_COURSES,
 ];
 
 export const QUIZZES = [
@@ -74,6 +81,7 @@ export const QUIZZES = [
       { q: "Which traversal visits a binary search tree in sorted order?", options: ["Preorder", "Inorder", "Postorder", "Level order"], answer: 1, explanation: "Inorder traversal visits left subtree, node, then right subtree, producing sorted keys in a BST." },
     ],
   },
+  ...CLOUD_QUIZZES,
 ];
 
 export function calculateQuizScore(quiz, answers) {
@@ -125,6 +133,23 @@ export function saveCourseProgress(studentId, progress, storage = getStorage()) 
   }
 }
 
+export function toggleCourseLessonProgress(progress, courseId, lessonId) {
+  const course = COURSE_CATALOG.find(({ id }) => id === courseId);
+  if (!course?.lessons.some(({ id }) => id === lessonId)) return progress;
+
+  const completed = Array.isArray(progress?.[courseId]) ? progress[courseId] : [];
+  const nextCompleted = completed.includes(lessonId)
+    ? completed.filter((id) => id !== lessonId)
+    : [...completed, lessonId];
+  return { ...progress, [courseId]: nextCompleted };
+}
+
+export function getCourseProgressPercent(course, completedLessonIds = []) {
+  if (!course?.lessons?.length) return 0;
+  const completed = new Set(completedLessonIds);
+  return Math.round(course.lessons.filter(({ id }) => completed.has(id)).length / course.lessons.length * 100);
+}
+
 export function loadQuizHistory(studentId, storage = getStorage()) {
   const saved = safeRead(`edumentor:${studentId}:quiz-history`, storage);
   return Array.isArray(saved) ? saved.filter((result) => (
@@ -169,5 +194,41 @@ export function safeStorageRemove(key, storage = getStorage()) {
     storage?.removeItem(key);
   } catch {
     // Storage may be unavailable in private browsing or restricted contexts.
+  }
+}
+
+export function shouldClearStudentSessionFromStorageEvent(event, studentId, studentName) {
+  if (studentId && studentName) return false;
+  return event?.key === null
+    || ((event?.key === "studentId" || event?.key === "studentName") && event.newValue === null);
+}
+
+export function loadStudentAvatar(studentId, storage = getStorage()) {
+  if (!studentId) return null;
+  try {
+    const avatarId = storage?.getItem(`edumentor:${studentId}:avatar`);
+    return STUDENT_AVATAR_IDS.has(avatarId) ? avatarId : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveStudentAvatar(studentId, avatarId, storage = getStorage()) {
+  if (!studentId || !STUDENT_AVATAR_IDS.has(avatarId)) return false;
+  try {
+    storage?.setItem(`edumentor:${studentId}:avatar`, avatarId);
+    return Boolean(storage);
+  } catch {
+    return false;
+  }
+}
+
+export function resetStudentAvatar(studentId, storage = getStorage()) {
+  if (!studentId) return false;
+  try {
+    storage?.removeItem(`edumentor:${studentId}:avatar`);
+    return Boolean(storage) && storage.getItem(`edumentor:${studentId}:avatar`) === null;
+  } catch {
+    return false;
   }
 }

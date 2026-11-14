@@ -1,0 +1,113 @@
+.neural-core-3d,
+.neural-core-fallback {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  min-width: 1px;
+  min-height: 1px;
+  place-items: center;
+  aspect-ratio: 1;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.neural-core-3d {
+  isolation: isolate;
+  z-index: 2;
+}
+
+.neural-core-3d > div {
+  position: absolute !important;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 1;
+}
+
+.neural-core-3d > div > div {
+  width: 100%;
+  height: 100%;
+}
+
+.neural-core-3d canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.neural-core-3d { pointer-events: auto; }
+
+.neural-core-hero {
+  width: 174px;
+  height: 174px;
+  filter: drop-shadow(0 0 24px rgba(231, 190, 54, .18));
+}
+
+.neural-core-mentor {
+  width: 178px;
+  height: 178px;
+  margin: 4px auto 2.1rem;
+  filter: drop-shadow(0 0 25px rgba(220, 187, 80, .17));
+}
+
+.neural-core-fallback {
+  border-radius: 50%;
+  filter: drop-shadow(0 0 22px rgba(234, 196, 73, .17));
+}
+
+.neural-fallback-ring {
+  position: absolute;
+  inset: 9%;
+  border: 1px solid rgba(246, 218, 126, .5);
+  border-radius: 50%;
+  box-shadow: 0 0 19px rgba(225, 186, 57, .1), inset 0 0 18px rgba(225, 186, 57, .08);
+}
+
+.neural-fallback-ring-one { animation: neuralFallbackOrbit 12s linear infinite; }
+.neural-fallback-ring-two { inset: 18%; border-color: rgba(250, 230, 164, .48); transform: rotateX(63deg) rotateY(25deg); animation: neuralFallbackOrbit 9s linear infinite reverse; }
+
+.neural-fallback-shell {
+  width: 49%;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(251, 234, 179, .75);
+  border-radius: 38% 62% 55% 45% / 44% 43% 57% 56%;
+  background: radial-gradient(circle at 34% 26%, #fefbf0 0, #f5dd8d 11%, #a58622 38%, #3a3112 75%);
+  box-shadow: inset -9px -12px 19px rgba(25, 20, 3, .62), inset 6px 5px 15px rgba(253, 246, 222, .5), 0 0 28px rgba(240, 202, 78, .4);
+  animation: neuralFallbackBreathe 4s ease-in-out infinite;
+}
+
+.neural-fallback-shell i {
+  width: 21%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #fefaeb;
+  box-shadow: 0 0 18px 10px rgba(249, 221, 132, .68);
+}
+
+@keyframes neuralFallbackOrbit { to { transform: rotate(360deg); } }
+@keyframes neuralFallbackBreathe { 50% { transform: scale(1.055); } }
+
+@media (max-width: 1050px) {
+  .neural-core-hero { width: 130px; height: 130px; }
+}
+
+@media (max-width: 800px) {
+  .neural-core-mentor { width: 82px; height: 82px; margin: 0; }
+}
+
+@media (max-width: 760px) {
+  .neural-core-hero { width: 84px; height: 84px; }
+}
+
+@media (max-width: 480px) {
+  .neural-core-hero { width: 76px; height: 76px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neural-fallback-ring,
+  .neural-fallback-shell { animation: none; }
+}
