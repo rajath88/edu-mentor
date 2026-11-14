@@ -898,3 +898,41 @@ body { background: var(--cw-bg); }
   .voice-recorder-panel, .voice-mic-button, .voice-dialog-actions button { animation: none; transition: none; }
 }
 
+/* Keep the mobile Mentor in normal document flow. A fixed-height workspace
+   with a nested transcript scroller can strand the composer behind iOS Safari's
+   collapsing browser chrome or on-screen keyboard. */
+@media (max-width: 767.98px) {
+  .eduverse {
+    min-height: calc(100vh - 5rem);
+    min-height: calc(100dvh - 5rem);
+    overflow: visible;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .eduverse-workspace {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .eduverse-transcript {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .eduverse-transcript.is-empty {
+    min-height: 45vh;
+    min-height: 45dvh;
+  }
+
+  .eduverse-messages {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .eduverse-composer {
+    flex: 0 0 auto;
+  }
+}
+
